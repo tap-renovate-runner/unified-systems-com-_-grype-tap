@@ -5,8 +5,9 @@
   // so the bump PR fails the pin check until `python -m tap_plugin.grype.pin_tool <version> --write`
   // rewrites them from the release's published checksums. That red PR is the intended state.
   //
-  // NOT verified: whether the fleet preset's custom managers (boot records, workflow pins) are kept
-  // or replaced when a repository carries its own renovate config; see the spec, req-grype-binary.
+  // Merging with the fleet preset's managers (boot records, workflow pins): read, not run. Renovate's
+  // option table marks `customManagers` as `mergeable: true`, so these are added to the inherited ones;
+  // no Renovate run has shown it here. See the spec, req-grype-binary.
   customManagers: [
     {
       customType: "regex",

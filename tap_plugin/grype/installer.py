@@ -100,8 +100,10 @@ def _repoint(link: Path, target_name: str) -> None:
 def install(home: Path, pin: Pin, *, platform: str, fetch: Fetcher = fetch_url) -> Path:
     """Place the pinned binary under ``<home>/bin`` and return its path.
 
-    Idempotent: when ``bin/grype-<version>`` exists and ``bin/grype`` points at it, nothing is
-    downloaded. Any failure leaves the previous binary and link untouched.
+    Idempotent: when ``bin/grype-<version>`` exists, ``bin/grype`` points at it and the file's sha256
+    equals the pin's ``binary_sha256``, nothing is downloaded. A file that exists but differs from the
+    pin is not trusted: it is replaced from a fresh, verified download. Any failure leaves the previous
+    binary and link untouched.
     """
     if platform not in pin.assets:
         raise InstallError(f"the pin has no archive for {platform}")
@@ -109,7 +111,12 @@ def install(home: Path, pin: Pin, *, platform: str, fetch: Fetcher = fetch_url) 
     bin_dir = home / "bin"
     versioned = bin_dir / f"grype-{pin.version}"
     link = bin_dir / "grype"
-    if versioned.is_file() and link.is_symlink() and os.readlink(link) == versioned.name:
+    if (
+        versioned.is_file()
+        and link.is_symlink()
+        and os.readlink(link) == versioned.name
+        and hashlib.sha256(versioned.read_bytes()).hexdigest() == asset.binary_sha256
+    ):
         return versioned
 
     data = fetch(asset.url)
@@ -128,6 +135,9 @@ def install(home: Path, pin: Pin, *, platform: str, fetch: Fetcher = fetch_url) 
         if stream is None:
             raise InstallError("the grype member cannot be read")
         binary = stream.read()
+    binary_digest = hashlib.sha256(binary).hexdigest()
+    if binary_digest != asset.binary_sha256:
+        raise InstallError(f"the extracted grype hashes to {binary_digest}, the pin says {asset.binary_sha256}; refusing it")
 
     bin_dir.mkdir(parents=True, exist_ok=True)
     temporary = bin_dir / f".grype-{pin.version}.{os.getpid()}.tmp"

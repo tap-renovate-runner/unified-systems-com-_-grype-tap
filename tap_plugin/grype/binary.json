@@ -1,17 +1,19 @@
 {
-  "description": "The pinned Grype release binary (req-grype-binary). The version is the only place it appears; every sha256 is the release's own published digest, re-checked against the downloaded archive by tap_plugin.grype.pin_tool. Renovate bumps `version`; run the pin tool to refresh the digests.",
+  "description": "The pinned Grype release binary (req-grype-binary). The version is the only place it appears; every archive sha256 is the release's own published digest, re-checked against the downloaded archive by tap_plugin.grype.pin_tool, which also computes binary_sha256, the digest of the grype executable inside. Renovate bumps `version`; run the pin tool to refresh the digests.",
   "version": "v0.120.1",
   "checksums_url": "https://github.com/anchore/grype/releases/download/v0.120.1/grype_0.120.1_checksums.txt",
   "platforms": {
     "linux/amd64": {
       "description": "The Grype v0.120.1 release archive for linux/amd64.",
       "url": "https://github.com/anchore/grype/releases/download/v0.120.1/grype_0.120.1_linux_amd64.tar.gz",
-      "sha256": "0a9ee97ef5ae2ee953b0a80098105052e846cdbe319a57d808b519c33cd1343d"
+      "sha256": "0a9ee97ef5ae2ee953b0a80098105052e846cdbe319a57d808b519c33cd1343d",
+      "binary_sha256": "d6e3248b0e788b4da7450a9e03d1e72811771cf97de3640a18e6517bf6507eb7"
     },
     "linux/arm64": {
       "description": "The Grype v0.120.1 release archive for linux/arm64.",
       "url": "https://github.com/anchore/grype/releases/download/v0.120.1/grype_0.120.1_linux_arm64.tar.gz",
-      "sha256": "29f47391dc283aa79fcc38e65224cd61f64dec0ecfd0db7074128ebf8ff23514"
+      "sha256": "29f47391dc283aa79fcc38e65224cd61f64dec0ecfd0db7074128ebf8ff23514",
+      "binary_sha256": "94afbea0a9b65a3a83b820e622e8ac337e26608c860315208d58dad9a80b25db"
     }
   }
 }

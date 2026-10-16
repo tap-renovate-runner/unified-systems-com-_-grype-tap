@@ -24,12 +24,13 @@
     "asset": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["description", "url", "sha256"],
+      "required": ["description", "url", "sha256", "binary_sha256"],
       "description": "One platform's release archive.",
       "properties": {
         "description": {"type": "string", "minLength": 1, "description": "What this archive is."},
         "url": {"type": "string", "pattern": "^https://github\\.com/anchore/grype/releases/download/", "description": "The release archive URL."},
-        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "The archive's sha256, copied by the pin tool from the release's published checksums and re-checked against the download."}
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "The archive's sha256, copied by the pin tool from the release's published checksums and re-checked against the download."},
+        "binary_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "The sha256 of the `grype` executable inside the archive, computed by the pin tool from the verified archive. The installer re-checks the installed file against it on every run, so a replaced binary does not survive a reinstall."}
       }
     }
   }

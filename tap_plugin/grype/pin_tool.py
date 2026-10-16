@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import sys
+import tarfile
 from pathlib import Path
 
 from tap_plugin.grype.binary_pin import (
@@ -27,7 +29,7 @@ from tap_plugin.grype.binary_pin import (
     expected_checksums_url,
     parse_pin,
 )
-from tap_plugin.grype.installer import Fetcher, InstallError, fetch_url
+from tap_plugin.grype.installer import Fetcher, InstallError, check_members, fetch_url
 
 
 def parse_checksums(text: str) -> dict[str, str]:
@@ -55,16 +57,24 @@ def build_pin(version: str, *, fetch: Fetcher = fetch_url) -> dict:
         actual = hashlib.sha256(archive).hexdigest()
         if actual != published[name]:
             raise PinError(f"{name}: the archive hashes to {actual} but the release publishes {published[name]}")
+        try:
+            with tarfile.open(fileobj=io.BytesIO(archive), mode="r:*") as opened:
+                stream = opened.extractfile(check_members(opened))
+                binary = stream.read() if stream is not None else b""
+        except tarfile.TarError as exc:
+            raise PinError(f"{name}: cannot read the archive: {exc}") from exc
         platforms[platform] = {
             "description": f"The Grype {version} release archive for {platform}.",
             "url": expected_asset_url(version, platform),
             "sha256": published[name],
+            "binary_sha256": hashlib.sha256(binary).hexdigest(),
         }
     data = {
         "description": (
             "The pinned Grype release binary (req-grype-binary). The version is the only place it appears; "
-            "every sha256 is the release's own published digest, re-checked against the downloaded archive by "
-            "tap_plugin.grype.pin_tool. Renovate bumps `version`; run the pin tool to refresh the digests."
+            "every archive sha256 is the release's own published digest, re-checked against the downloaded archive by "
+            "tap_plugin.grype.pin_tool, which also computes binary_sha256, the digest of the grype executable inside. "
+            "Renovate bumps `version`; run the pin tool to refresh the digests."
         ),
         "version": version,
         "checksums_url": expected_checksums_url(version),

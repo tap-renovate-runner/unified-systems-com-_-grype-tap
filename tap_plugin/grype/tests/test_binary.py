@@ -49,12 +49,16 @@ def special_member(name: str, kind: bytes, linkname: str = "") -> tuple[tarfile.
     return info, None
 
 
-def pin_for(archive: bytes, version: str = VERSION) -> Pin:
+def pin_for(archive: bytes, version: str = VERSION, binary: bytes = GOOD_BINARY) -> Pin:
     url = binary_pin.expected_asset_url(version, PLATFORM)
     return Pin(
         version=version,
         checksums_url=binary_pin.expected_checksums_url(version),
-        assets={PLATFORM: Asset(url=url, sha256=hashlib.sha256(archive).hexdigest())},
+        assets={
+            PLATFORM: Asset(
+                url=url, sha256=hashlib.sha256(archive).hexdigest(), binary_sha256=hashlib.sha256(binary).hexdigest()
+            )
+        },
     )
 
 
@@ -105,6 +109,8 @@ class TestPinFile(unittest.TestCase):
                 url=d["platforms"]["linux/amd64"]["url"].replace("0.120", "0.119")
             ),
             "short sha": lambda d: d["platforms"]["linux/amd64"].update(sha256="abc"),
+            "short binary sha": lambda d: d["platforms"]["linux/amd64"].update(binary_sha256="abc"),
+            "no binary sha": lambda d: d["platforms"]["linux/amd64"].pop("binary_sha256"),
             "uppercase sha": lambda d: d["platforms"]["linux/amd64"].update(
                 sha256=d["platforms"]["linux/amd64"]["sha256"].upper()
             ),
@@ -146,6 +152,32 @@ class TestInstaller(TempHome):
         self.assertEqual(again.calls, 0)
         self.assertEqual(len(list((self.home / "bin").iterdir())), 2)
 
+    def test_a_replaced_binary_does_not_survive_a_reinstall(self) -> None:
+        archive = make_archive([file_member("grype", GOOD_BINARY)])
+        pin = pin_for(archive)
+        path = installer.install(self.home, pin, platform=PLATFORM, fetch=FakeFetch(archive))
+        path.write_bytes(b"#!/bin/sh\necho owned\n")
+        again = FakeFetch(archive)
+        installer.install(self.home, pin, platform=PLATFORM, fetch=again)
+        self.assertEqual(again.calls, 1, "a file that differs from the pin must be replaced from a fresh download")
+        self.assertEqual(path.read_bytes(), GOOD_BINARY)
+        self.assertEqual(os.readlink(self.home / "bin" / "grype"), path.name)
+
+    def test_a_replaced_binary_with_no_reachable_download_is_not_trusted(self) -> None:
+        archive = make_archive([file_member("grype", GOOD_BINARY)])
+        pin = pin_for(archive)
+        path = installer.install(self.home, pin, platform=PLATFORM, fetch=FakeFetch(archive))
+        path.write_bytes(b"tampered")
+        with self.assertRaises(OSError):
+            installer.install(self.home, pin, platform=PLATFORM, fetch=FakeFetch(OSError("network down")))
+
+    def test_an_archive_whose_binary_differs_from_the_pinned_binary_digest_is_refused(self) -> None:
+        archive = make_archive([file_member("grype", GOOD_BINARY)])
+        pin = pin_for(archive, binary=b"a different binary")
+        with self.assertRaises(installer.InstallError):
+            installer.install(self.home, pin, platform=PLATFORM, fetch=FakeFetch(archive))
+        self.assertFalse((self.home / "bin").exists())
+
     def test_a_digest_mismatch_is_refused_and_writes_nothing(self) -> None:
         archive = make_archive([file_member("grype", GOOD_BINARY)])
         pin = pin_for(archive)
@@ -183,7 +215,9 @@ class TestInstaller(TempHome):
         installer.install(self.home, pin_for(old, "v9.9.8"), platform=PLATFORM, fetch=FakeFetch(old))
         new = make_archive([file_member("grype", GOOD_BINARY + b"2")])
         with self.assertRaises(OSError):
-            installer.install(self.home, pin_for(new), platform=PLATFORM, fetch=FakeFetch(OSError("network down")))
+            installer.install(
+                self.home, pin_for(new, binary=GOOD_BINARY + b"2"), platform=PLATFORM, fetch=FakeFetch(OSError("network down"))
+            )
         link = self.home / "bin" / "grype"
         self.assertEqual(os.readlink(link), "grype-v9.9.8")
         self.assertEqual(link.read_bytes(), GOOD_BINARY)
@@ -248,6 +282,8 @@ class TestPinTool(unittest.TestCase):
         pin = binary_pin.parse_pin(data)
         self.assertEqual(pin.version, VERSION)
         self.assertEqual(set(pin.assets), set(binary_pin.PLATFORMS))
+        for platform, asset in pin.assets.items():
+            self.assertEqual(asset.binary_sha256, hashlib.sha256(GOOD_BINARY + platform.encode()).hexdigest())
 
     def test_an_archive_that_differs_from_the_published_digest_is_refused(self) -> None:
         with self.assertRaises(PinError):

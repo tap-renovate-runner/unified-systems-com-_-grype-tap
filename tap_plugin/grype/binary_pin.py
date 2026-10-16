@@ -28,10 +28,11 @@ class PinError(ValueError):
 
 @dataclass(frozen=True)
 class Asset:
-    """One platform's release archive."""
+    """One platform's release archive and the binary inside it."""
 
     url: str
     sha256: str
+    binary_sha256: str
 
 
 @dataclass(frozen=True)
@@ -85,15 +86,17 @@ def parse_pin(data: Any) -> Pin:
     for name, entry in platforms.items():
         if name not in PLATFORMS:
             raise PinError(f"unsupported platform {name!r}; supported: {list(PLATFORMS)}")
-        if not isinstance(entry, dict) or set(entry) != {"description", "url", "sha256"}:
-            raise PinError(f"platform {name}: expected exactly description, url, sha256")
+        if not isinstance(entry, dict) or set(entry) != {"description", "url", "sha256", "binary_sha256"}:
+            raise PinError(f"platform {name}: expected exactly description, url, sha256, binary_sha256")
         if not isinstance(entry["description"], str) or not entry["description"].strip():
             raise PinError(f"platform {name}: description must be non-empty text")
         if entry["url"] != expected_asset_url(version, name):
             raise PinError(f"platform {name}: url is not the release archive for {version}")
         if not isinstance(entry["sha256"], str) or not _SHA256.match(entry["sha256"]):
             raise PinError(f"platform {name}: sha256 must be 64 lowercase hex characters")
-        assets[name] = Asset(url=entry["url"], sha256=entry["sha256"])
+        if not isinstance(entry["binary_sha256"], str) or not _SHA256.match(entry["binary_sha256"]):
+            raise PinError(f"platform {name}: binary_sha256 must be 64 lowercase hex characters")
+        assets[name] = Asset(url=entry["url"], sha256=entry["sha256"], binary_sha256=entry["binary_sha256"])
     return Pin(version=version, checksums_url=data["checksums_url"], assets=assets)
 
 
