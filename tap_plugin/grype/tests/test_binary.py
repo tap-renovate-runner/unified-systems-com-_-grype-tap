@@ -205,6 +205,16 @@ class TestInstaller(TempHome):
                 self.assertFalse((self.home / "bin").exists())
                 self.assertEqual([p.name for p in self.root.iterdir()], [])  # nothing escaped beside `home`
 
+    def test_an_implausibly_large_grype_member_is_refused_before_it_is_read(self) -> None:
+        class Stub:
+            def getmembers(self) -> list[tarfile.TarInfo]:
+                info = tarfile.TarInfo("grype")
+                info.size = installer.MAX_ARCHIVE_BYTES + 1
+                return [info]
+
+        with self.assertRaises(installer.InstallError):
+            installer.check_members(Stub())  # type: ignore[arg-type]
+
     def test_an_archive_with_no_top_level_grype_is_refused(self) -> None:
         archive = make_archive([file_member("sub/grype", GOOD_BINARY), file_member("LICENSE", b"mit")])
         with self.assertRaises(installer.InstallError):

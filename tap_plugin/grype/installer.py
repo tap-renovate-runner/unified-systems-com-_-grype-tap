@@ -76,6 +76,8 @@ def check_members(archive: tarfile.TarFile) -> tarfile.TarInfo:
         if member.ischr() or member.isblk() or member.isfifo():
             raise InstallError(f"archive member {member.name!r} is a special file; refusing the archive")
         if member.isfile() and path.name == "grype" and len(path.parts) == 1:
+            if member.size > MAX_ARCHIVE_BYTES:
+                raise InstallError("the grype member is implausibly large; refusing the archive")
             if binary is not None:
                 raise InstallError("archive holds more than one top-level `grype`; refusing it")
             binary = member
@@ -129,8 +131,6 @@ def install(home: Path, pin: Pin, *, platform: str, fetch: Fetcher = fetch_url) 
         raise InstallError(f"cannot read the archive: {exc}") from exc
     with archive:
         member = check_members(archive)
-        if member.size > MAX_ARCHIVE_BYTES:
-            raise InstallError("the grype member is implausibly large; refusing it")
         stream = archive.extractfile(member)
         if stream is None:
             raise InstallError("the grype member cannot be read")
