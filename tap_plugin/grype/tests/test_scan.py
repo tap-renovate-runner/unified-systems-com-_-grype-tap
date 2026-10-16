@@ -40,6 +40,14 @@ class TestPurl(unittest.TestCase):
                 self.assertIsNone(targets.canonical_purl(malformed))
                 self.assertNotEqual(targets.canonical_purl(malformed), targets.canonical_purl(valid))
 
+    def test_purls_that_differ_only_in_subpath_are_different(self) -> None:
+        one = targets.canonical_purl("pkg:generic/a@1#one")
+        two = targets.canonical_purl("pkg:generic/a@1#two")
+        self.assertIsNotNone(one)
+        self.assertNotEqual(one, two)
+        self.assertNotEqual(one, targets.canonical_purl("pkg:generic/a@1"))
+        self.assertEqual(targets.canonical_purl("pkg:generic/a@1#a/b"), targets.canonical_purl("pkg:generic/a@1#a//b"))
+
     def test_percent_encoding_is_normalised_and_junk_is_none(self) -> None:
         plain = "pkg:generic/openssl-fips-provider@3.5.8?download_url=https://github.com/x/y.tar.gz"
         encoded = "pkg:generic/openssl-fips-provider@3.5.8?download_url=https%3A%2F%2Fgithub.com%2Fx%2Fy.tar.gz"
@@ -189,9 +197,9 @@ class TestScanDocument(unittest.TestCase):
             "truncated output": FakeGrype(self.good[: len(self.good) // 2]),
             "wrong version": FakeGrype(json.dumps(json.loads(self.good) | {"descriptor": {"name": "grype", "version": "0.1.0"}})),
         }
-        for label, fake in cases.items():
+        for number, (label, fake) in enumerate(cases.items()):
             with self.subTest(label), self.assertRaises(scan.ScanError):
-                self.scan(fake, index=hash(label) % 1000)
+                self.scan(fake, index=number)  # a fixed index per case: string hashes are randomised per process
         with self.assertRaises(scan.ScanError):
             scan.scan_document(BINARY, DB_DIR, b"x" * big, self.scratch, expected_version=VERSION, run=FakeGrype(self.good))
 

@@ -46,6 +46,16 @@ class TestRecordingsAreChecked(unittest.TestCase):
         with self.assertRaises(recordings.FixtureError):
             recordings.text(recordings.LOG4J, directory=self._replacement(b"0" * (size * 50)))
 
+    def test_bytes_hidden_after_the_gzip_stream_are_refused(self) -> None:
+        name = recordings.LOG4J
+        genuine = (recordings.FIXTURES / name).read_bytes()
+        for label, trailer in {"junk": b"hidden", "a second member": gzip.compress(b"payload")}.items():
+            directory = Path(tempfile.mkdtemp())
+            self.addCleanup(lambda d=directory: [p.unlink() for p in d.iterdir()] and d.rmdir())
+            (directory / name).write_bytes(genuine + trailer)
+            with self.subTest(label), self.assertRaises(recordings.FixtureError):
+                recordings.text(name, directory=directory)
+
     def test_a_truncated_recording_is_refused(self) -> None:
         directory = self._replacement(b"{}")
         with self.assertRaises(recordings.FixtureError):
@@ -221,6 +231,16 @@ class TestFindingFacts(unittest.TestCase):
             data["matches"][0]["vulnerability"]["fix"] = {"state": state, "versions": []}
             (fact,) = facts.finding_facts(parse(data))
             self.assertEqual(fact.fixed_versions, (), state)
+
+    def test_purls_spelled_differently_are_one_finding_as_they_are_one_target(self) -> None:
+        data = recordings.data(recordings.TAP_WEB)
+        first = next(m for m in data["matches"] if "?" in m["artifact"]["purl"] and "&" in m["artifact"]["purl"])
+        twin = copy.deepcopy(first)
+        base, query = twin["artifact"]["purl"].split("?", 1)
+        twin["artifact"]["purl"] = base + "?" + "&".join(reversed(query.split("&")))
+        self.assertNotEqual(first["artifact"]["purl"], twin["artifact"]["purl"])
+        data["matches"] = [first, twin]
+        self.assertEqual(len(facts.finding_facts(parse(data))), 1)
 
     def test_several_matches_of_one_vulnerability_on_one_artifact_collapse(self) -> None:
         data = recordings.data(recordings.LOG4J)

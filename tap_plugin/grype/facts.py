@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from tap_plugin.grype.output import Document, EpssEntry, KevEntry, Match
+from tap_plugin.grype.targets import canonical_purl
 
 _CVE = re.compile(r"^CVE-\d{4}-\d{4,}$")
 _SEVERITY_RANK = {"Critical": 5, "High": 4, "Medium": 3, "Low": 2, "Negligible": 1, "Unknown": 0}
@@ -140,14 +141,19 @@ def _fixed_versions(matches: list[Match]) -> tuple[str, ...] | None:
 
 
 def finding_facts(document: Document) -> list[FindingFact]:
-    """One fact per (vulnerability key, artifact purl); several matches of one pair collapse to one."""
+    """One fact per (vulnerability key, artifact purl); several matches of one pair collapse to one.
+
+    The pair is keyed on the canonical purl, the same spelling ``targets.map_matches`` compares, so two matches
+    whose purls differ only in qualifier order or percent-encoding are one finding, as they are one target.
+    """
     groups: dict[tuple[str, str], list[Match]] = {}
     for match in document.matches:
         key, _ = vuln_key(match)
-        groups.setdefault((key, match.artifact.purl), []).append(match)
+        groups.setdefault((key, canonical_purl(match.artifact.purl) or match.artifact.purl), []).append(match)
     facts = []
-    for (key, purl), matches in sorted(groups.items()):
+    for (key, _canonical), matches in sorted(groups.items()):
         artifact = matches[0].artifact
+        purl = artifact.purl
         severity = max((m.severity for m in matches), key=lambda s: _SEVERITY_RANK.get(s, 0))
         states = {m.fix_state for m in matches}
         state = "fixed" if "fixed" in states else next((s for s in ("not-fixed", "wont-fix") if s in states), "unknown")

@@ -4,7 +4,8 @@ The collector scans packages and libraries the grid already holds, so every matc
 or be counted as unmapped; a match is never dropped silently and never guessed onto the wrong node. Two
 tiers, strictest first: the artifact's canonical purl equals the target's canonical purl, then the purl type,
 name and version equal the target's ecosystem, name and version. A tier that finds more than one target
-refuses to choose and reports the match as ``ambiguous``.
+refuses to choose and reports the match as ``ambiguous``. The second tier exists for packages only: a library
+carries no ecosystem, so a library is found by its canonical purl alone.
 """
 
 from __future__ import annotations
@@ -43,7 +44,7 @@ def canonical_purl(purl: str) -> str | None:
     rest = purl[4:]
     if rest.startswith("/"):
         return None  # a leading slash is not part of a purl; never normalised away into a valid one
-    rest, _, _subpath = rest.partition("#")
+    rest, _, subpath = rest.partition("#")
     rest, _, query = rest.partition("?")
     path, at, version = rest.rpartition("@") if "@" in rest.split("/")[-1] else (rest, "", "")
     raw_segments = path.split("/")
@@ -61,6 +62,9 @@ def canonical_purl(purl: str) -> str | None:
         out += "@" + quote(unquote(version), safe="")
     if qualifiers:
         out += "?" + "&".join(f"{quote(key, safe='')}={quote(value, safe='')}" for key, value in qualifiers)
+    if subpath:
+        # Part of a purl's identity: two purls that differ only in subpath are different, never one target.
+        out += "#" + "/".join(quote(unquote(part), safe="") for part in subpath.split("/") if part)
     return out
 
 
