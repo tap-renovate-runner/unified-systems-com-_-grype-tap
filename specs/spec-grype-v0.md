@@ -84,6 +84,7 @@ The operator step is a stdlib-only script shipped with the plugin (no Django imp
 | req-grype-binary-2 | Version Gate | Proposed | A fire whose `grype --version` differs from the pin ends before any SBOM is built, as a failed collection job naming both versions, and writes no run, finding or edge. | The binary that ran is the one that was pinned. |
 | req-grype-binary-3 | Honest FIPS Declaration | Proposed | The manifest carries `[fips]` with `uses-nonvalidated` and a non-empty reason, `validate_plugin --strict` passes, and this spec states that the declaration is unverified by the crypto-BOM check. | |
 | req-grype-binary-4 | Installer Is Idempotent | Proposed | Running the installer twice leaves one binary and a correct link; a failed download leaves the previous binary in place. | |
+| req-grype-binary-5 | Bump Is Checked | Proposed | A change to the pin is accepted only when the archive's digest equals the digest in the release's own published checksums file, checked by a script run at the bump, and the bump records the upstream signing identity where Anchore publishes one. | The check that turns a copied checksum into a verified one; closes a review finding on the first draft. |
 
 ### The Advisory Database
 ----
@@ -97,7 +98,7 @@ Grype matches against a vulnerability database that Anchore builds daily. The pl
 
 **Refresh collector** `grype:database_refresh`, with a plugin-seeded schedule node (default cron `17 2 * * *`, off the hour and ahead of the scan, user-editable, one active run). It runs the pinned binary's own update (`grype db update`) with the database directory pointed at a staging directory next to the live one, so Anchore's client does the download, the checksum and the validation; the plugin writes none of that. It then reads `grype db status` on the staging copy and, only if that succeeds, atomically repoints `<home>/db/current` to it and removes the previous one after a successful swap. A failed refresh leaves `current` untouched and ends as a failed collection job naming why.
 
-**Mirror fallback.** The scanner node's `configuration.database_mirror` names a directory; when set, the refresh imports the newest archive in it (`grype db import`) instead of reaching Anchore, with the same staging, validation and swap. An operator fills the directory. Whether the TAP container can reach `grype.anchore.io` in a given deployment is NOT observed; the mirror is how that question stops blocking.
+**Mirror fallback.** The scanner node's `configuration.database_mirror` names a directory; when set, the refresh imports from it (`grype db import`) instead of reaching Anchore, with the same staging, validation and swap. An operator fills the directory. "Newest" means the archive with the latest build time in its manifest, never a file's modification time. Each archive sits beside a manifest the operator's fetch step writes (`archive` name, `sha256`, `built`, taken from Anchore's `latest.json` over TLS); the refresh refuses an archive whose digest does not match its manifest, one built earlier than the installed database (no rollback), and one stamped in the future, and keeps the installed database. Whether `grype db import` itself authenticates an archive is NOT verified, so the plugin does not rely on it. **Trust boundary, stated plainly:** anyone who can write the mirror directory (archive and manifest together) or retarget `database_mirror` on the user-editable scanner node can substitute a database, and the checksum only catches accident and half-substitution. The mirror directory is therefore operator-only, and a change to `database_mirror` is a node write that appears in the node's history. Whether the TAP container can reach `grype.anchore.io` in a given deployment is NOT observed; the mirror is how that question stops blocking.
 
 **Scans never fetch.** Every scan invocation sets the auto-update and application-update-check switches off, so a scan makes no connection, and the test for it blocks egress. The scan reads the installed database's build date and checksum from `grype db status` and records them on the run (`data_built_at`, `data_version`, `req-grype-run`).
 
@@ -112,6 +113,7 @@ Grype matches against a vulnerability database that Anchore builds daily. The pl
 | req-grype-database-3 | Mirror Fallback | Proposed | With `database_mirror` set, the refresh imports from the directory and makes no network connection. | Asserted with egress blocked. |
 | req-grype-database-4 | Scans Never Fetch | Proposed | A scan with egress blocked completes against the installed database and makes no connection attempt. | |
 | req-grype-database-5 | Age Rule | Proposed | A database older than `database_max_age_days`, or missing, ends the run `db-stale` or `db-unavailable`, changes no finding or vulnerability, and writes no coverage edge. | The run exists; the findings do not move. |
+| req-grype-database-6 | Mirror Is Verified | Proposed | An archive whose digest differs from its manifest, one built earlier than the installed database, and one stamped in the future are each refused, and the installed database keeps serving scans. | A negative substitution test; closes a review finding on the first draft. |
 
 ### The Whole-Grid Collector
 ----
@@ -126,6 +128,8 @@ Status: `Proposed`
 **Scope: the whole grid.** Every live `package` and `library` node is a scan target. The grid, not this plugin, decides what matters; deployment is out of scope (`req-grype-nongoals`).
 
 **One document per operating system.** The builder takes a single operating system. A target's operating system is found by traversal: the hosts that `INSTALLS_PACKAGE` (or `SHIPS_LIBRARY`) the target, and their `RUNS_OPERATING_SYSTEM`. One document is built per distinct `operating_system` node; a target under several is included in each and its matches are collapsed to one finding per target. A target no host installs has no operating system. The builder's behaviour with none has NOT been read (its PR is not up at authoring); the collector therefore records such a target as `not-scanned` with reason `no-operating-system` unless the builder is shown to accept it, in which case it goes into a document of its own and the reason is dropped. (This is the only place the spec defers to the builder's final shape.)
+
+**Several documents, one outcome.** A target in more than one document is `scanned` only when every document it appears in parsed successfully. Matches from the successful documents still create or reopen findings, but if any one of its documents failed the target is `not-scanned` with reason `document-failed` and none of its findings is resolved: a finding absent from the successful document may simply have been in the failed one.
 
 **Scratch.** Each run uses `<home>/scratch/<run_id>/`, created `0700`, never a fixed or cwd-relative path, removed on exit including on failure. File names inside are fixed (`doc-<n>.cdx.json`), never derived from grid data.
 
@@ -147,6 +151,7 @@ Status: `Proposed`
 | req-grype-collector-4 | Fails Closed | Proposed | Truncated JSON, a wrong descriptor version, a missing required field and a non-zero exit each leave that document's targets `not-scanned` and write no finding for it. | Fixtures for each. |
 | req-grype-collector-5 | Mapping, With Unmapped Counted | Proposed | Matches map by purl then natural key; an unmappable match increments the run's unmapped count and the run ends `partial`. | |
 | req-grype-collector-6 | Subprocess Hygiene | Proposed | Grype is run with an argument list and no shell, a scrubbed environment, a timeout and an output cap. | Grid data never enters a command line. |
+| req-grype-collector-7 | Mixed Documents Never Resolve | Proposed | A target in two operating-system documents, one parsed and one failed, is `not-scanned` with reason `document-failed`; a prior finding absent from the parsed document stays `open`. | Closes a review finding on the first draft. |
 
 ### Own Schedule And Its Guards
 ----
@@ -273,7 +278,7 @@ One scanner node says which installed Grype this is; every execution is a scan r
 
 **Run.** One `compliance_scan_run` per execution: `source` `grype`, `run_key` a UUIDv7 minted for the run, `category` `grype-grid`, `tool_version` from `grype --version`, `observed_at`, `outcome` (`ok`: every target scanned; `partial`: some not scanned or unmapped; `failed`: no document parsed; `db-stale`; `db-unavailable`), `results_count` (matches), and `data_version` and `data_built_at` from `grype db status`. `commit_sha` and `ref` stay `null`. These two fields and the coverage edge are compliance_core's additions for this plugin (PR# 39 - compliance-core-tap, not yet released at authoring).
 
-**Coverage.** `SCANNED_COMPLIANCE_TARGET` from the run to each target, with `outcome` (`scanned`, `not-scanned`, `failed`) and, when not scanned, a `reason` (`no-operating-system`, `document-failed`, `unmapped`). A target has exactly one such edge: the batch deletes the previous run's for each target it touches. A run that ended `db-stale` or `db-unavailable` writes none, so the previous coverage stands and ages.
+**Coverage.** `SCANNED_COMPLIANCE_TARGET` from the run to each target, with `outcome` (`scanned`, `not-scanned`, `failed`) and, when not scanned, a `reason` (`no-operating-system`, `document-failed`, `unmapped`). A target has exactly one such edge per scanner: the batch deletes only the previous coverage edge whose run belongs to this plugin's scanner (source `grype`), for each target it touches, and never another scanner's edge to the same target. A run that ended `db-stale` or `db-unavailable` writes none, so the previous coverage stands and ages.
 
 #### Acceptance Criteria
 
@@ -282,7 +287,7 @@ One scanner node says which installed Grype this is; every execution is a scan r
 | req-grype-run-1 | One Run Per Execution | Proposed | An executed scan creates one run node under the scanner, with the outcome vocabulary above. | A skipped fire creates none. |
 | req-grype-run-2 | Versions Recorded | Proposed | The run's `tool_version` equals the binary's reported version and its `data_version` and `data_built_at` equal `grype db status`. | |
 | req-grype-run-3 | Per-Target Outcome | Proposed | Every target of a completed run has a coverage edge with `scanned`, `not-scanned` or `failed`, and `not-scanned` carries a reason. | |
-| req-grype-run-4 | Exactly One Coverage Edge | Proposed | After two runs a target has one coverage edge, to the later run. | |
+| req-grype-run-4 | One Coverage Edge Per Scanner | Proposed | After two runs a target has one coverage edge from this scanner's runs, to the later run, and a coverage edge from another scanner's run to the same target is left untouched. | Closes a review finding on the first draft. |
 | req-grype-run-5 | Scanner Carries No Version | Proposed | The scanner node has no version field value and its settings are read from `configuration`. | |
 
 ### Staleness Is Derived
@@ -291,7 +296,7 @@ RID: `req-grype-staleness`
 
 Status: `Proposed`
 
-A package or library that has not been scanned within the cadence reads as stale, never clean. The state is derived by query from the latest coverage edge and its run; nothing is stored on the package or library nodes, which computing_core owns.
+A package or library that has not been scanned within the cadence reads as stale, never clean. The state is derived by query from the latest coverage edge from this scanner's runs and that run; nothing is stored on the package or library nodes, which computing_core owns.
 
 #### Implementation
 
