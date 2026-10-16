@@ -59,6 +59,9 @@ class TestPurl(unittest.TestCase):
             "pkg:generic/a@1#x//y",  # an empty subpath segment
             "pkg:generic/a@1#x/../y",  # a dot segment
             "pkg:generic/a@1#/x",
+            "pkg:generic/a%FF@1",  # an escape that is not valid UTF-8 is not replaced by U+FFFD
+            "pkg:generic/a@1#%FF",
+            "pkg:generic/a@1?arch=%FF",
             "pkg:generic/a@1?",  # a delimiter with nothing after it
             "pkg:generic/a@1#",
             "pkg:generic/a@1?#",

@@ -49,11 +49,28 @@ def _qualifiers(query: str) -> list[tuple[str, str]] | None:
         key, equals, value = item.partition("=")
         if not equals or not _QUALIFIER_KEY.match(key) or key.lower() in pairs:
             return None
-        pairs[key.lower()] = unquote(value)
+        pairs[key.lower()] = _unquote(value)
     return sorted((key, value) for key, value in pairs.items() if value)
 
 
+def _unquote(value: str) -> str:
+    """Percent-decode strictly: an escape that is not valid UTF-8 is an error, never replaced by U+FFFD.
+
+    ``urllib.parse.unquote`` defaults to ``errors="replace"``, which would make ``%FF`` and ``%FE`` decode alike
+    and so let two different malformed purls compare equal.
+    """
+    return unquote(value, errors="strict")
+
+
 def canonical_purl(purl: str) -> str | None:
+    """Canonical form of a purl, or None when it is malformed in any way (including undecodable escapes)."""
+    try:
+        return _canonical_purl(purl)
+    except UnicodeDecodeError:
+        return None
+
+
+def _canonical_purl(purl: str) -> str | None:
     """A purl in one spelling: lowercase type, decoded then re-encoded parts, qualifiers sorted by key.
 
     Returns None for anything that is not a ``pkg:`` purl with a type and a name, so a malformed purl can
@@ -73,7 +90,7 @@ def canonical_purl(purl: str) -> str | None:
     raw_segments = path.split("/")
     if len(raw_segments) < 2 or not all(raw_segments):
         return None  # an empty segment (``a//b``) is malformed, not a shorter path
-    segments = [unquote(part) for part in raw_segments]
+    segments = [_unquote(part) for part in raw_segments]
     ptype, name = segments[0].lower(), segments[-1]
     namespace = "/".join(segments[1:-1])
     qualifiers = _qualifiers(query)
@@ -84,15 +101,15 @@ def canonical_purl(purl: str) -> str | None:
         out += "/".join(quote(part, safe="") for part in namespace.split("/")) + "/"
     out += quote(name, safe="")
     if at:
-        out += "@" + quote(unquote(version), safe="")
+        out += "@" + quote(_unquote(version), safe="")
     if qualifiers:
         out += "?" + "&".join(f"{quote(key, safe='')}={quote(value, safe='')}" for key, value in qualifiers)
     if subpath:
         # Part of a purl's identity: two purls that differ only in subpath are different, never one target.
         parts = subpath.split("/")
-        if not all(parts) or any(unquote(part) in (".", "..") for part in parts):
+        if not all(parts) or any(_unquote(part) in (".", "..") for part in parts):
             return None  # an empty or dot segment is malformed; it is not repaired into a shorter subpath
-        out += "#" + "/".join(quote(unquote(part), safe="") for part in parts)
+        out += "#" + "/".join(quote(_unquote(part), safe="") for part in parts)
     return out
 
 
