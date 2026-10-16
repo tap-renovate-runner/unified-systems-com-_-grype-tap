@@ -23,6 +23,7 @@ from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
 from tap_plugin.grype.binary_pin import PLATFORMS, Pin, PinError, load_pin
+from tap_plugin.grype.fsutil import repoint
 from tap_plugin.grype.settings import write_default_settings
 
 MAX_ARCHIVE_BYTES = 200 * 1024 * 1024
@@ -86,19 +87,6 @@ def check_members(archive: tarfile.TarFile) -> tarfile.TarInfo:
     return binary
 
 
-def _repoint(link: Path, target_name: str) -> None:
-    """Atomically make ``link`` a relative symlink to ``target_name`` in its own directory."""
-    temporary = link.with_name(f".{link.name}.{os.getpid()}.tmp")
-    try:
-        if temporary.is_symlink() or temporary.exists():
-            temporary.unlink()
-        temporary.symlink_to(target_name)
-        os.replace(temporary, link)
-    finally:
-        if temporary.is_symlink() or temporary.exists():
-            temporary.unlink()
-
-
 def install(home: Path, pin: Pin, *, platform: str, fetch: Fetcher = fetch_url) -> Path:
     """Place the pinned binary under ``<home>/bin`` and return its path.
 
@@ -151,7 +139,7 @@ def install(home: Path, pin: Pin, *, platform: str, fetch: Fetcher = fetch_url) 
     finally:
         if temporary.exists():
             temporary.unlink()
-    _repoint(link, versioned.name)
+    repoint(link, versioned.name)
     return versioned
 
 
