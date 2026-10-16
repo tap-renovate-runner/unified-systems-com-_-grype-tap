@@ -46,7 +46,27 @@ class TestPurl(unittest.TestCase):
         self.assertIsNotNone(one)
         self.assertNotEqual(one, two)
         self.assertNotEqual(one, targets.canonical_purl("pkg:generic/a@1"))
-        self.assertEqual(targets.canonical_purl("pkg:generic/a@1#a/b"), targets.canonical_purl("pkg:generic/a@1#a//b"))
+
+    def test_malformed_parts_are_refused_not_repaired(self) -> None:
+        valid = targets.canonical_purl("pkg:generic/a%25ZZ@1")
+        self.assertIsNotNone(valid)
+        for malformed in (
+            "pkg:generic/a%ZZ@1",  # an invalid escape must not equal the valid encoded text above
+            "pkg:generic/a@1?arch=x&bad",  # a qualifier with no =
+            "pkg:generic/a@1?=x",  # an empty key
+            "pkg:generic/a@1?arch=x&arch=y",  # a key given twice
+            "pkg:generic/a@1?ar ch=x",  # an odd key
+            "pkg:generic/a@1#x//y",  # an empty subpath segment
+            "pkg:generic/a@1#x/../y",  # a dot segment
+            "pkg:generic/a@1#/x",
+        ):
+            with self.subTest(malformed):
+                self.assertIsNone(targets.canonical_purl(malformed))
+        self.assertNotEqual(targets.canonical_purl("pkg:generic/a%ZZ@1"), valid)
+        self.assertEqual(
+            targets.canonical_purl("pkg:generic/a@1?arch=x&empty="), targets.canonical_purl("pkg:generic/a@1?arch=x"),
+            "an empty qualifier value carries no information and is left out, as the purl specification says",
+        )
 
     def test_percent_encoding_is_normalised_and_junk_is_none(self) -> None:
         plain = "pkg:generic/openssl-fips-provider@3.5.8?download_url=https://github.com/x/y.tar.gz"
@@ -148,6 +168,23 @@ class TestScratch(unittest.TestCase):
             (three / "left-behind").write_text("x")
             raise RuntimeError("the run failed")
         self.assertEqual(list((self.home / "scratch").iterdir()), [])
+
+    def test_a_cleanup_failure_is_reported_never_swallowed(self) -> None:
+        original = scan.shutil.rmtree
+
+        def failing(path, *args, **kwargs):
+            raise PermissionError("read-only volume")
+
+        scan.shutil.rmtree = failing
+        try:
+            with self.assertRaises(scan.ScanError), scan.scratch_dir(self.home, "run-0000000e"):
+                pass
+            with self.assertRaises(RuntimeError) as caught, scan.scratch_dir(self.home, "run-0000000f"):
+                raise RuntimeError("the run failed")
+        finally:
+            scan.shutil.rmtree = original
+        self.assertEqual(str(caught.exception), "the run failed", "the real error is not masked")
+        self.assertTrue(any("was not removed" in note for note in caught.exception.__notes__))
 
     def test_a_run_id_cannot_name_another_directory_and_a_collision_is_refused(self) -> None:
         for bad in ("../escape", "a/b", "", "short", "run id with spaces", "..", "x" * 80):

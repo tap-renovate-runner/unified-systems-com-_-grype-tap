@@ -10,11 +10,15 @@ carries no ecosystem, so a library is found by its canonical purl alone.
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from dataclasses import dataclass
-from urllib.parse import parse_qsl, quote, unquote
+from urllib.parse import quote, unquote
 
 from tap_plugin.grype.output import Match
+
+_BAD_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
+_QUALIFIER_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9._-]*$")
 
 NO_TARGET = "no-target"
 AMBIGUOUS = "ambiguous"
@@ -32,6 +36,23 @@ class Target:
     purl: str | None = None
 
 
+def _qualifiers(query: str) -> list[tuple[str, str]] | None:
+    """The qualifiers sorted by key, or None when the syntax is not ``key=value&key=value``.
+
+    A pair with no ``=``, an empty or odd key, or a key given twice is malformed. A pair whose value is empty is
+    valid and carries no information, so it is left out, as the purl specification says.
+    """
+    if not query:
+        return []
+    pairs: dict[str, str] = {}
+    for item in query.split("&"):
+        key, equals, value = item.partition("=")
+        if not equals or not _QUALIFIER_KEY.match(key) or key.lower() in pairs:
+            return None
+        pairs[key.lower()] = unquote(value)
+    return sorted((key, value) for key, value in pairs.items() if value)
+
+
 def canonical_purl(purl: str) -> str | None:
     """A purl in one spelling: lowercase type, decoded then re-encoded parts, qualifiers sorted by key.
 
@@ -39,8 +60,8 @@ def canonical_purl(purl: str) -> str | None:
     never equal another by accident. Grype regenerates purls, so the same package arrives spelled differently
     (qualifier order, percent-encoding); both sides go through this one function.
     """
-    if not purl.startswith("pkg:"):
-        return None
+    if not purl.startswith("pkg:") or _BAD_ESCAPE.search(purl):
+        return None  # an invalid percent escape is malformed, never read as a literal that could equal a valid one
     rest = purl[4:]
     if rest.startswith("/"):
         return None  # a leading slash is not part of a purl; never normalised away into a valid one
@@ -53,7 +74,9 @@ def canonical_purl(purl: str) -> str | None:
     segments = [unquote(part) for part in raw_segments]
     ptype, name = segments[0].lower(), segments[-1]
     namespace = "/".join(segments[1:-1])
-    qualifiers = sorted((key.lower(), value) for key, value in parse_qsl(query, keep_blank_values=False))
+    qualifiers = _qualifiers(query)
+    if qualifiers is None:
+        return None
     out = f"pkg:{quote(ptype, safe='')}/"
     if namespace:
         out += "/".join(quote(part, safe="") for part in namespace.split("/")) + "/"
@@ -64,7 +87,10 @@ def canonical_purl(purl: str) -> str | None:
         out += "?" + "&".join(f"{quote(key, safe='')}={quote(value, safe='')}" for key, value in qualifiers)
     if subpath:
         # Part of a purl's identity: two purls that differ only in subpath are different, never one target.
-        out += "#" + "/".join(quote(unquote(part), safe="") for part in subpath.split("/") if part)
+        parts = subpath.split("/")
+        if not all(parts) or any(unquote(part) in (".", "..") for part in parts):
+            return None  # an empty or dot segment is malformed; it is not repaired into a shorter subpath
+        out += "#" + "/".join(quote(unquote(part), safe="") for part in parts)
     return out
 
 
