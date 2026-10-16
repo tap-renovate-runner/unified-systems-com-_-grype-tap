@@ -71,7 +71,7 @@ Grype is a Go binary published by Anchore as release archives and container imag
 
 A declarative data file `tap_plugin/grype/binary.json`, with a JSON Schema authored beside it and a `description` on the top level and on every entry, names the pin: `version` (for example `v0.120.1`) and, per platform (`linux/amd64`, `linux/arm64`), the release archive URL and its `sha256`. It is the only place the version appears; the collector and the installer both read it.
 
-The operator step is a stdlib-only script shipped with the plugin (no Django import, so it can run in an image build or at provisioning). It downloads the archive named for the host platform, refuses on a `sha256` mismatch, extracts it to `<home>/bin/grype-<version>`, and atomically repoints `<home>/bin/grype`. It is idempotent. `<home>` is a persistent volume path recorded on the scanner node (`locator`, see `req-grype-run`), because plugin configuration lives on the grid or in plugin-owned mechanisms, never in shared compose.
+The operator step is a stdlib-only script shipped with the plugin (no Django import, so it can run in an image build or at provisioning). It downloads the archive named for the host platform, refuses on a `sha256` mismatch, extracts only the single member named `grype` (refusing absolute paths, `..`, symlinks and hard links, and special files, and never writing outside the target directory) to `<home>/bin/grype-<version>`, and atomically repoints `<home>/bin/grype`. It is idempotent. `<home>` is a persistent volume path recorded on the scanner node (`locator`, see `req-grype-run`), because plugin configuration lives on the grid or in plugin-owned mechanisms, never in shared compose.
 
 **Named weakness.** The `sha256` in `binary.json` is a checksum the plugin's authors copy from the release's published checksums at pin time. This is the shape zizmor's spec rejected for a hand-authored checksum: presence, not correctness, unless the copy is checked. The bump procedure therefore verifies the release's published checksums file against the archive and records the upstream signing identity if Anchore publishes one (NOT verified at authoring; recorded as a verify-once step on the first pin).
 
@@ -86,6 +86,7 @@ The operator step is a stdlib-only script shipped with the plugin (no Django imp
 | req-grype-binary-3 | Honest FIPS Declaration | Proposed | The manifest carries `[fips]` with `uses-nonvalidated` and a non-empty reason, `validate_plugin --strict` passes, and this spec states that the declaration is unverified by the crypto-BOM check. | |
 | req-grype-binary-4 | Installer Is Idempotent | Proposed | Running the installer twice leaves one binary and a correct link; a failed download leaves the previous binary in place. | |
 | req-grype-binary-5 | Bump Is Checked | Proposed | A change to the pin is accepted only when the archive's digest equals the digest in the release's own published checksums file, checked by a script run at the bump, and the bump records the upstream signing identity where Anchore publishes one. | The check that turns a copied checksum into a verified one; closes a review finding on the first draft. |
+| req-grype-binary-6 | Extraction Is Contained | Proposed | An archive carrying an absolute path, a `..` member, a symlink or hard link that escapes, or a device file is refused even when its digest matches the pin, and nothing is written outside `<home>/bin`. | A malicious-archive fixture; closes a review finding. |
 
 ### The Advisory Database
 ----
@@ -223,7 +224,7 @@ A finding is one vulnerability asserted against one scan target, keyed by that a
 
 #### Implementation
 
-A `compliance_finding` with `source` `grype` and `source_key` `<vuln_id>|<target entity type>|<target natural key fields joined by |>`, for example `CVE-2026-1234|computing_core__package|apk|libssl3|3.5.4-r0`. The run is never in the key, and neither are the Grype version or the database build, so a finding is the same node across reruns and across scanner updates. Its `name` is `<vuln_id> in <target name> <version>`, its `summary` carries Grype's severity and fix state as the scanner's statement and not a verdict, and `status` is `open` or `resolved`.
+A `compliance_finding` with `source` `grype` and `source_key` a compact JSON array of the vulnerability id, the target's entity type and each field of the target's natural key, in order, for example `["CVE-2026-1234","computing_core__package","apk","libssl3","3.5.4-r0"]`. The array form is the canonical encoding: a delimiter-joined string would let two different tuples (`a|b`, `c` and `a`, `b|c`) share one key and resolve or reopen each other's findings. The run is never in the key, and neither are the Grype version or the database build, so a finding is the same node across reruns and across scanner updates. Its `name` is `<vuln_id> in <target name> <version>`, its `summary` carries Grype's severity and fix state as the scanner's statement and not a verdict, and `status` is `open` or `resolved`.
 
 Edges: `CONCERNS_COMPLIANCE_VULNERABILITY` to the vulnerability, with `fixed_versions` as the match's fix versions when Grype says fixed, `[]` when it says not fixed or won't fix (looked, none), and absent when the fix state is unknown; `CARRIES_COMPLIANCE_FINDING` from the target to the finding; `REPORTS_COMPLIANCE_FINDING` from the run (`req-grype-lifecycle`). Several matches of one vulnerability on one target (different match details) collapse to one finding.
 
@@ -238,6 +239,7 @@ Edges: `CONCERNS_COMPLIANCE_VULNERABILITY` to the vulnerability, with `fixed_ver
 | req-grype-finding-3 | Fixed Versions Tri-State | Proposed | `fixed_versions` is the list for a fixed match, `[]` for not-fixed or won't-fix, and absent for unknown. | |
 | req-grype-finding-4 | Duplicate Matches Collapse | Proposed | Several matches of one vulnerability on one target yield one finding. | |
 | req-grype-finding-5 | Correlated By Graph | Proposed | A query from the vulnerability and package nodes returns this finding and a CI-shaped finding together, with no shared key. | Fixture of a second producer. |
+| req-grype-finding-6 | Key Cannot Collide | Proposed | Two targets whose natural-key fields differ only in where a `|` falls produce different `source_key` values, because the key is a JSON array; a key over 512 characters is refused, not truncated. | Closes a review finding. |
 
 ### Findings Resolve Only What Was Scanned
 ----
@@ -317,7 +319,7 @@ RID: `req-grype-corpus`
 
 Status: `Proposed`
 
-Two tiers. The recorded tier feeds Grype's real native JSON, recorded once, through the parser and the lifecycle and always runs. The live tier runs the real binary and database and reproduces the recorded counts, and when either is absent it is skipped loudly, never reported green. Fixtures never ship in or seed a live grid; the suite seeds nodes in its own transaction.
+Two tiers. The recorded tier feeds Grype's real native JSON, recorded once, through the parser and the lifecycle and always runs. The live tier runs the real binary and database and reproduces the recorded counts, and when either is absent it is skipped loudly on ordinary CI, and in the nightly job a skipped live tier is a failure: the job asserts after the run that the live tests executed, so the proof cannot be lost by a skip reported as success. Fixtures never ship in or seed a live grid; the suite seeds nodes in its own transaction.
 
 #### Implementation
 
@@ -329,7 +331,7 @@ Fixtures in `tap_plugin/grype/tests/`: Grype v0.120.1 native JSON recorded from 
 | --- | --- | :---: | --- | --- |
 | req-grype-corpus-1 | Log4j Round Trip | Proposed | The recorded log4j output yields one CVE-keyed vulnerability with KEV details, EPSS and the GHSA alias, and a finding on its package. | |
 | req-grype-corpus-2 | tap-web Recorded Output | Proposed | The recorded tap-web output yields 27 vulnerabilities and the expected findings, with every match mapped or counted unmapped. | |
-| req-grype-corpus-3 | Live Tier Reproduces | Proposed | With the binary and database present the live tier reproduces 91 matches over 27 ids on the same SBOM, within the tolerance the database build allows, and reports skipped with a reason otherwise. | The database moves daily; the tolerance is stated with the recorded build. |
+| req-grype-corpus-3 | Live Tier Reproduces | Proposed | With the binary and database present the live tier reproduces 91 matches over 27 ids on the same SBOM, within the tolerance the database build allows, and reports skipped with a reason otherwise on ordinary CI; the nightly job fails if the live tier did not execute. | The database moves daily; the tolerance is stated with the recorded build. |
 | req-grype-corpus-4 | Fail-Closed Fixtures | Proposed | A truncated JSON, a wrong descriptor version and an empty output each leave targets not-scanned. | |
 
 ### First Light
