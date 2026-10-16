@@ -46,14 +46,14 @@ Five consequences shape v0:
 | --- | --- | --- | --- |
 | req-grype-binary | [The Pinned Release Binary](#the-pinned-release-binary) | In Development | Pinned release binary and sha256 placed by an operator step; version gate; honest `[fips]` with its unverifiable caveat |
 | req-grype-database | [The Advisory Database](#the-advisory-database) | In Development | Own daily refresh collector with an operator mirror fallback; scans never fetch; the age rule ends a run `db-stale` or `db-unavailable` |
-| req-grype-collector | [The Whole-Grid Collector](#the-whole-grid-collector) | Proposed | `grype:grype`: per-operating-system SBOMs from computing_core's builder, native JSON, fail closed, per-run scratch |
+| req-grype-collector | [The Whole-Grid Collector](#the-whole-grid-collector) | In Development | `grype:grype`: per-operating-system SBOMs from computing_core's builder, native JSON, fail closed, per-run scratch |
 | req-grype-trigger | [Own Schedule And Its Guards](#own-schedule-and-its-guards) | Proposed | Seeded daily schedule; skips with no run node while upstream writes; names the upstream jobs it read; the actor and its write permission |
-| req-grype-vulnerability | [Vulnerabilities, Minted And Patched](#vulnerabilities-minted-and-patched) | Proposed | CVE-keyed with the GHSA as alias, alias-aware lookup, partial patches only, null never false |
-| req-grype-finding | [The Finding](#the-finding) | Proposed | Keyed by vulnerability and target, under source `grype`; fixed versions on the edge; correlation by graph |
+| req-grype-vulnerability | [Vulnerabilities, Minted And Patched](#vulnerabilities-minted-and-patched) | In Development | CVE-keyed with the GHSA as alias, alias-aware lookup, partial patches only, null never false |
+| req-grype-finding | [The Finding](#the-finding) | In Development | Keyed by vulnerability and target, under source `grype`; fixed versions on the edge; correlation by graph |
 | req-grype-lifecycle | [Findings Resolve Only What Was Scanned](#findings-resolve-only-what-was-scanned) | Proposed | Resolve, reopen, latest-run-only reporting edge, net-new derived |
 | req-grype-run | [Scanner, Run And Coverage](#scanner-run-and-coverage) | Proposed | One scanner node, one scan run per execution, one coverage edge per target |
 | req-grype-staleness | [Staleness Is Derived](#staleness-is-derived) | Proposed | Four coverage states read by query; nothing stored on package nodes |
-| req-grype-corpus | [The Corpus Proof](#the-corpus-proof) | Proposed | Recorded native outputs always; the live tier reproduces 91 matches over 27 ids when the binary and database are present |
+| req-grype-corpus | [The Corpus Proof](#the-corpus-proof) | In Development | Recorded native outputs always; the live tier reproduces 91 matches over 27 ids when the binary and database are present |
 | req-grype-first-light | [First Light](#first-light) | Proposed | A scheduled run observed on the live grid, with its counts and a clean second run |
 | req-grype-sidecar | [Delivery By Sidecar](#delivery-by-sidecar) | Backlog | Replaces the release binary when docker sidecars are available |
 | req-grype-sandbox | [Binary Sandbox](#binary-sandbox) | Backlog | Landlock plus seccomp around every Grype invocation, once tap_plugins ships the shared wrapper (tap#858); fail closed when the kernel cannot apply it |
@@ -128,7 +128,7 @@ Grype matches against a vulnerability database that Anchore builds daily. The pl
 ----
 RID: `req-grype-collector`
 
-Status: `Proposed`
+Status: `In Development`
 
 `GrypeCollector` (`CollectorBase`, registry key `grype:grype`) is derived: it reads package, library and operating-system rows already on the grid, builds throwaway CycloneDX documents with computing_core's `build_cyclonedx`, runs the pinned Grype over each, parses Grype's native JSON (`-o json`), and lands the results. It needs no credential and, at scan time, no network.
 
@@ -142,7 +142,7 @@ Status: `Proposed`
 
 **Scratch.** Each run uses `<home>/scratch/<run_id>/`, created `0700`, never a fixed or cwd-relative path, removed on exit including on failure. File names inside are fixed (`doc-<n>.cdx.json`), never derived from grid data.
 
-**Invocation.** One invocation per document: `<home>/bin/grype sbom:<file> -o json` with `GRYPE_DB_CACHE_DIR=<home>/db/current`, auto-update and update-check off, a scrubbed environment, an argument list (no shell), a timeout, and a cap on output size. A non-zero exit or a timeout fails that document.
+**Invocation.** One invocation per document: `<home>/bin/grype sbom:<file> -o json=<scratch>/out-<n>.json` (the file form, so the output's size is checked before it is read; observed 2026-10-16: it writes the file, prints nothing and exits 0 even when there are matches) with `GRYPE_DB_CACHE_DIR=<home>/db/current`, auto-update and update-check off, a scrubbed environment, an argument list (no shell), a timeout, and a cap on output size. A non-zero exit or a timeout fails that document.
 
 **Native JSON, strictly parsed.** The output is validated against a JSON Schema this plugin authors for exactly the fields it reads (`matches[].vulnerability` id, severity, `knownExploited`, `epss`, `fix`, `dataSource`; `relatedVulnerabilities`; `matches[].artifact` name, version, type, purl; `descriptor.version`). The descriptor version must equal the pin. Unparseable output, a missing required field, or an unexpected shape fails that document closed: its targets are `not-scanned`, nothing is inferred from a partial parse.
 
@@ -156,10 +156,10 @@ Status: `Proposed`
 | --- | --- | :---: | --- | --- |
 | req-grype-collector-1 | Pure Function Of Grid State | Proposed | Two runs over unchanged rows, the same binary and the same database build produce identical finding sets, with egress blocked. | |
 | req-grype-collector-2 | Whole Grid, Per Operating System | Proposed | Every live package and library is a target; one document is built per operating system; a target under two is scanned in both and yields one finding per vulnerability. | |
-| req-grype-collector-3 | Scratch Is Ephemeral And Isolated | Proposed | The scratch tree is per run; two concurrent runs never share a path; none remains after a run or a failed run. | |
-| req-grype-collector-4 | Fails Closed | Proposed | Truncated JSON, a wrong descriptor version, a missing required field and a non-zero exit each leave that document's targets `not-scanned` and write no finding for it. | Fixtures for each. |
-| req-grype-collector-5 | Mapping, With Unmapped Counted | Proposed | Matches map by purl then natural key; an unmappable match increments the run's unmapped count and the run ends `partial`. | |
-| req-grype-collector-6 | Subprocess Hygiene | Proposed | Grype is run with an argument list and no shell, a scrubbed environment, a timeout and an output cap. | Grid data never enters a command line. |
+| req-grype-collector-3 | Scratch Is Ephemeral And Isolated | Implemented | The scratch tree is per run; two concurrent runs never share a path; none remains after a run or a failed run. | `tests/test_scan.py` `TestScratch`. |
+| req-grype-collector-4 | Fails Closed | Proposed | Truncated JSON, a wrong descriptor version, a missing required field and a non-zero exit each leave that document's targets `not-scanned` and write no finding for it. | Fixtures for each. Built: the parse and scan layer refuses each case (`tests/test_output.py` `TestFailsClosed`, `tests/test_scan.py` `test_each_failure_is_one_scan_error`). Not built: leaving the document's targets `not-scanned`, which is the orchestration. |
+| req-grype-collector-5 | Mapping, With Unmapped Counted | Proposed | Matches map by purl then natural key; an unmappable match increments the run's unmapped count and the run ends `partial`. | Built: `map_matches` with the two tiers and the ambiguity refusal (`tests/test_scan.py` `TestMapping`). Not built: the unmapped count on the run and the `partial` outcome. |
+| req-grype-collector-6 | Subprocess Hygiene | Proposed | Grype is run with an argument list and no shell, a scrubbed environment, a timeout and an output cap. | Grid data never enters a command line. Built: the argument list, scrubbed environment, update switches off and the output size check (`tests/test_scan.py` `test_the_invocation_has_the_controls_the_spec_names`). The timeout is the runner's constant and no test exercises it. |
 | req-grype-collector-7 | Mixed Documents Never Resolve | Proposed | A target in two operating-system documents, one parsed and one failed, is `not-scanned` with reason `document-failed`; a prior finding absent from the parsed document stays `open`. | |
 
 ### Own Schedule And Its Guards
@@ -195,7 +195,7 @@ This plugin's GRIFT (`grift/schedule.grift.json`, declared under `[grift]`) seed
 ----
 RID: `req-grype-vulnerability`
 
-Status: `Proposed`
+Status: `In Development`
 
 The plugin mints a vulnerability node when a match names one the grid does not hold, and patches the facts Grype supplies on existing ones as they change. The node is compliance_core's and is written by several sources, so the plugin writes only the fields it owns by contract and never overwrites another source's.
 
@@ -209,24 +209,26 @@ The plugin mints a vulnerability node when a match names one the grid does not h
 
 **KEV.** A match carrying `knownExploited` sets `kev` true with `kev_added`, `kev_due_date`, `kev_required_action` and `kev_ransomware_use`. Grype omits the `knownExploited` key when the catalog does not list a vulnerability (observed 2026-10-15 in the recorded outputs: absent on all 91 matches of the tap-web output and on 19 of 21 of the log4j output, present on the two known-exploited GHSA-keyed matches). When the database loaded, meaning the document's `descriptor.db.status` is present, that omission is the catalog's answer, so the plugin sets `kev` false for a matched vulnerability with no block. That is an inference from the omission pattern, not a documented guarantee, so the corpus pins it on the recorded outputs, and a document without `descriptor.db.status` writes `null`, never `false`. A node previously true that Grype no longer lists is set false explicitly, so a delisting is visible. `kev_catalog_version` is the database build as `grype-db:<data_version>`; that is a proxy, since Grype exposes no catalog release, and the spec names it so (presence is not correctness).
 
+**Carried as Grype supplies it.** Grype lowercases the catalog's ransomware flag (observed: `known` where CISA publishes `Known`); the plugin stores the string it is given and does not re-case it, and compliance_core's field help text names the CISA spelling, a difference noted here and not corrected in either place.
+
 **EPSS.** An `epss` entry whose `cve` equals `vuln_id` sets `epss_score`, `epss_percentile` and `epss_date` from it. No entry leaves the three `null`; the plugin never writes `0` for an unread score.
 
 #### Acceptance Criteria
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | :---: | --- | --- |
-| req-grype-vulnerability-1 | CVE Key, GHSA Alias | Proposed | A GHSA-named match with a CVE in `relatedVulnerabilities` yields one node keyed by the CVE with the GHSA as an alias. | The log4j fixture. |
+| req-grype-vulnerability-1 | CVE Key, GHSA Alias | Proposed | A GHSA-named match with a CVE in `relatedVulnerabilities` yields one node keyed by the CVE with the GHSA as an alias. | The log4j fixture. Derivation built and shown on the real log4j recording (`tests/test_output.py` `TestVulnerabilityFacts`); the node write is the writer's. |
 | req-grype-vulnerability-2 | No Duplicate By Alias | Proposed | A vulnerability already on the grid under its GHSA, or as an alias, is reused, never minted again. | |
 | req-grype-vulnerability-3 | Partial Patch Only | Proposed | Patching KEV and EPSS leaves another source's CVSS, CWE and SSVC fields unchanged. | Node pre-seeded with those fields. |
-| req-grype-vulnerability-4 | Null Is Never False | Proposed | A vulnerability with no `epss` entry keeps `epss_*` `null`; none is written as `0`. | |
-| req-grype-vulnerability-5 | KEV True, False, Delisted | Proposed | `knownExploited` sets true with its details; a matched id with none sets false only when the document reported its database; a document without `descriptor.db.status` writes `null`; a node true that is no longer listed is set false. | Pinned on the recorded outputs. |
+| req-grype-vulnerability-4 | Null Is Never False | Proposed | A vulnerability with no `epss` entry keeps `epss_*` `null`; none is written as `0`. | Derivation built (an absent `epss` is none, and a reading for another CVE is ignored); the node write is the writer's. |
+| req-grype-vulnerability-5 | KEV True, False, Delisted | Proposed | `knownExploited` sets true with its details; a matched id with none sets false only when the document reported its database; a document without `descriptor.db.status` writes `null`; a node true that is no longer listed is set false. | Pinned on the recorded outputs. Derivation built (true with details, false only when the document reported its database, null otherwise); delisting is the writer's. |
 | req-grype-vulnerability-6 | Concurrent Writers Detected | Proposed | A patch whose node changed since it was read fails with the version conflict, is re-read and re-planned, and is never forced. | |
 
 ### The Finding
 ----
 RID: `req-grype-finding`
 
-Status: `Proposed`
+Status: `In Development`
 
 A finding is one vulnerability asserted against one scan target, keyed by that assertion. It is written under the source `grype` only: other producers keep their own findings, and the same vulnerability on the same package is correlated by traversing the shared vulnerability and target nodes, not by sharing a key.
 
@@ -244,8 +246,8 @@ Edges: `CONCERNS_COMPLIANCE_VULNERABILITY` to the vulnerability, with `fixed_ver
 | --- | --- | :---: | --- | --- |
 | req-grype-finding-1 | Not Run-Scoped | Proposed | Two runs over the same unchanged match produce the same finding node, with the same key. | |
 | req-grype-finding-2 | Source-Namespaced | Proposed | Every finding has `source` `grype`; a finding of another source with the same vulnerability and package is a separate node. | |
-| req-grype-finding-3 | Fixed Versions Tri-State | Proposed | `fixed_versions` is the list for a fixed match, `[]` for not-fixed or won't-fix, and absent for unknown. | |
-| req-grype-finding-4 | Duplicate Matches Collapse | Proposed | Several matches of one vulnerability on one target yield one finding. | |
+| req-grype-finding-3 | Fixed Versions Tri-State | Proposed | `fixed_versions` is the list for a fixed match, `[]` for not-fixed or won't-fix, and absent for unknown. | Derivation built (`tests/test_output.py` `TestFindingFacts`). |
+| req-grype-finding-4 | Duplicate Matches Collapse | Proposed | Several matches of one vulnerability on one target yield one finding. | Derivation built (`tests/test_output.py` `test_several_matches_of_one_vulnerability_on_one_artifact_collapse`). |
 | req-grype-finding-5 | Correlated By Graph | Proposed | A query from the vulnerability and package nodes returns this finding and a CI-shaped finding together, with no shared key. | Fixture of a second producer. |
 | req-grype-finding-6 | Key Cannot Collide | Proposed | Two targets whose natural-key fields differ only in where a `|` falls produce different `source_key` values, because the key is a JSON array; a key over 512 characters is refused, not truncated. | |
 
@@ -325,7 +327,7 @@ Four coverage states per target: `scanned-current` (latest coverage outcome `sca
 ----
 RID: `req-grype-corpus`
 
-Status: `Proposed`
+Status: `In Development`
 
 Two tiers. The recorded tier feeds Grype's real native JSON, recorded once, through the parser and the lifecycle and always runs. The live tier runs the real binary and database and reproduces the recorded counts, and when either is absent it is skipped loudly on ordinary CI, and in the nightly job a skipped live tier is a failure: the job asserts after the run that the live tests executed, so the proof cannot be lost by a skip reported as success. Fixtures never ship in or seed a live grid; the suite seeds nodes in its own transaction.
 
@@ -337,10 +339,10 @@ Fixtures in `tap_plugin/grype/tests/`: Grype v0.120.1 native JSON recorded from 
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | :---: | --- | --- |
-| req-grype-corpus-1 | Log4j Round Trip | Proposed | The recorded log4j output yields one CVE-keyed vulnerability with KEV details, EPSS and the GHSA alias, and a finding on its package. | |
-| req-grype-corpus-2 | tap-web Recorded Output | Proposed | The recorded tap-web output yields 27 vulnerabilities and the expected findings, with every match mapped or counted unmapped. | |
+| req-grype-corpus-1 | Log4j Round Trip | Proposed | The recorded log4j output yields one CVE-keyed vulnerability with KEV details, EPSS and the GHSA alias, and a finding on its package. | Derivation half shown; the node and finding writes are not built. |
+| req-grype-corpus-2 | tap-web Recorded Output | Proposed | The recorded tap-web output yields 27 vulnerabilities and the expected findings, with every match mapped or counted unmapped. | Shown at the derivation level: 91 matches give 27 vulnerability keys (22 CVE, 5 GHSA; two GHSA ids join their CVE) and 91 findings, and all 91 map when the targets exist. The node writes are not built. |
 | req-grype-corpus-3 | Live Tier Reproduces | Proposed | With the binary and database present the live tier reproduces 91 matches over 27 ids on the same SBOM, within the tolerance the database build allows, and reports skipped with a reason otherwise on ordinary CI; the nightly job fails if the live tier did not execute. | The database moves daily; the tolerance is stated with the recorded build. |
-| req-grype-corpus-4 | Fail-Closed Fixtures | Proposed | A truncated JSON, a wrong descriptor version and an empty output each leave targets not-scanned. | |
+| req-grype-corpus-4 | Fail-Closed Fixtures | Proposed | A truncated JSON, a wrong descriptor version and an empty output each leave targets not-scanned. | Parse and scan layer shown; the targets-not-scanned half waits for the orchestration. |
 
 ### First Light
 ----
