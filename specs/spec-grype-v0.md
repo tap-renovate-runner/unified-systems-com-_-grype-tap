@@ -56,6 +56,7 @@ Five consequences shape v0:
 | req-grype-corpus | [The Corpus Proof](#the-corpus-proof) | Proposed | Recorded native outputs always; the live tier reproduces 91 matches over 27 ids when the binary and database are present |
 | req-grype-first-light | [First Light](#first-light) | Proposed | A scheduled run observed on the live grid, with its counts and a clean second run |
 | req-grype-sidecar | [Delivery By Sidecar](#delivery-by-sidecar) | Backlog | Replaces the release binary when docker sidecars are available |
+| req-grype-sandbox | [Binary Sandbox](#binary-sandbox) | Backlog | Landlock plus seccomp around every Grype invocation, once tap_plugins ships the shared wrapper (tap#858); fail closed when the kernel cannot apply it |
 | req-grype-nongoals | [v0 Non-Goals](#v0-non-goals) | Proposed | What this plugin deliberately does not do, and who owns it |
 
 ### The Pinned Release Binary
@@ -357,6 +358,18 @@ RID: `req-grype-sidecar`
 Status: `Backlog`
 
 When docker sidecars are available, Grype is delivered as a pinned sidecar image by digest and the release-binary installer is retired. The same version gate, the same recorded database build and the same scan contract apply. Not designed here; the first cut is the release binary because no packaging channel for a Go binary exists yet.
+
+### Binary Sandbox
+----
+RID: `req-grype-sandbox`
+
+Status: `Backlog`
+
+Every Grype invocation, the scan and the database refresh alike, runs inside the standard plugin-binary sandbox once it exists: Landlock for the filesystem and a self-applied seccomp filter for syscalls, as tap#858 settled and `req-tap-plugin-manifest-capability-declaration` would declare. The wrapper is a shared tap_plugins deliverable, not something this plugin builds privately, so this row is Backlog until that lands. The interim controls are the ones in `req-grype-collector-6` and `req-grype-database-4`.
+
+**Fail closed (ruled by George, 2026-10-15).** Once the sandbox is adopted, a run on a kernel that cannot apply it refuses to scan: the collection job fails naming the missing capability, no run node is created that claims a result, and no finding, vulnerability or coverage edge is written. There is no unsandboxed fallback and no "ran without it" mode.
+
+**Intended profile, to be verified at adoption.** The scan: no `socket` or `connect` (so "scans never fetch" is enforced and no longer only tested); read the binary, the installed database directory and its own scratch tree; write only the scratch tree. Whether Grype writes anything into the database directory with auto-update off is NOT verified and is tested first. The refresh: network only, with TCP connect limited to port 443 by Landlock where the kernel supports it; hostname-level control of `grype.anchore.io` belongs to the operator's egress proxy or firewall, driven by the capability declaration. The launcher is a separate process that restricts itself and then execs Grype, because restrictions are inherited across exec and must not be applied to the collector's own threaded worker.
 
 ### v0 Non-Goals
 ----
