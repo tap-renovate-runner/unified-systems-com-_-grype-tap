@@ -1,0 +1,32 @@
+manifest_version = "0"
+plugin_version = "0.1.0" # x-release-please-version
+requires_tap = ">=0.3.0"
+slug = "grype"
+name = "TAP Grype"
+description = "A grid-native Grype scan: builds an SBOM from the packages on the grid, matches it against Grype's advisory database on a schedule, and writes findings, KEV and EPSS back to the grid."
+
+# Tier-1 load order (req-tap-plugin-arch-dependencies). computing_core: the collector reads package,
+# library, host and operating-system rows and calls its SBOM builder. compliance_core: the collector
+# writes vulnerability, scanner, scan run and finding nodes and their edges. Data order (the scan
+# runs after the inventory is collected) is Tier-2 and handled by the upstream-skip rule in
+# req-grype-trigger, not here. Nothing imports either yet; the dependencies are declared ahead of
+# the code that will use them, per the spec.
+depends_on = [
+  { slug = "computing_core", note = "reads package, library, host and operating_system rows; calls build_cyclonedx" },
+  { slug = "compliance_core", note = "writes vulnerability, scanner, scan_run and finding nodes and their edges" },
+]
+
+# The author's DECLARED crypto posture (req-tap-plugin-manifest-v0-fips; spec-fips.md declare-vs-decide).
+# Grype is a Go binary that uses Go's standard crypto (TLS and hashing), which ignores OPENSSL_CONF, so
+# it is not the validated module. The binary is placed out of band, so the crypto-BOM check, which
+# scans a plugin's shipped files and declared dependencies, cannot see it: nothing mechanical verifies
+# this declaration (req-grype-binary). The scan never opens a connection (req-grype-database-4); only
+# the database refresh does.
+[fips]
+status = "uses-nonvalidated"
+reason = "Grype is a Go binary using Go's standard crypto, not the validated OpenSSL provider. It is placed out of band, so the crypto-BOM scan cannot observe it. The scan runs with network access disabled; only the database refresh opens a connection. A FIPS deployment waives per plugin in the boot profile."
+
+[[boot.records]]
+name = "ci"
+description = "RESERVED NAME (req-boot-bootstrap-ci-record): the stack this plugin's own tests run in - depends_on closure + self, offline, credential-free. The consumer flips self to editable."
+sha256 = "10643c19423a71f3a709701bac2664ad82fa116e3d72e10338b686ca1776da28"

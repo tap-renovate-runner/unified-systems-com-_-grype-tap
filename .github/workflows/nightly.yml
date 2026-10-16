@@ -1,0 +1,32 @@
+# Nightly self-test (Stage 4 of unified-systems-com/tap#363, req-tap-plugin-extdev-repo-ci-12).
+#
+# A THIN CALLER. Running this plugin against core `main` and turning a red night into one issue
+# that the next green closes both live in core's reusable `plugin-nightly.yml`, so they are fixed
+# once for every plugin instead of fifteen times over.
+#
+# Only what cannot move lives here: the `schedule` trigger (a reusable workflow's own triggers
+# are not consulted when it is called), the cron MINUTE, staggered per repo so the org's
+# nightlies do not burst, the slug, the pin, and the grant.
+#
+# No `latest_ref`: there is deliberately no "latest core release" row.
+name: nightly
+on:
+  schedule:
+    - cron: "47 10 * * *"   # minute staggered per repo so the org's nightlies do not burst
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  nightly:
+    uses: unified-systems-com/tap/.github/workflows/plugin-nightly.yml@91def688c2290e6422dbebdf7f5a2ddbfa44fc3a
+    # REQUIRED on this job. GitHub checks every job of a called workflow, and of the workflows
+    # IT calls, against this grant BEFORE starting anything, so a scope missing here fails the
+    # whole run at startup with zero jobs and no log. `security-events: write` is plugin-ci's
+    # SARIF upload; `issues: write` is the owner-issue job and is the only write in the tree.
+    permissions:
+      contents: read
+      security-events: write
+      issues: write
+    with:
+      plugin_slug: grype
+      assignee: notgeorge   # no CODEOWNERS in this repo: the org's maintainer login
