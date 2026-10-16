@@ -45,7 +45,7 @@ Five consequences shape v0:
 | RID | Name | Status | Notes |
 | --- | --- | --- | --- |
 | req-grype-binary | [The Pinned Release Binary](#the-pinned-release-binary) | In Development | Pinned release binary and sha256 placed by an operator step; version gate; honest `[fips]` with its unverifiable caveat |
-| req-grype-database | [The Advisory Database](#the-advisory-database) | Proposed | Own daily refresh collector with an operator mirror fallback; scans never fetch; the age rule ends a run `db-stale` or `db-unavailable` |
+| req-grype-database | [The Advisory Database](#the-advisory-database) | In Development | Own daily refresh collector with an operator mirror fallback; scans never fetch; the age rule ends a run `db-stale` or `db-unavailable` |
 | req-grype-collector | [The Whole-Grid Collector](#the-whole-grid-collector) | Proposed | `grype:grype`: per-operating-system SBOMs from computing_core's builder, native JSON, fail closed, per-run scratch |
 | req-grype-trigger | [Own Schedule And Its Guards](#own-schedule-and-its-guards) | Proposed | Seeded daily schedule; skips with no run node while upstream writes; names the upstream jobs it read; the actor and its write permission |
 | req-grype-vulnerability | [Vulnerabilities, Minted And Patched](#vulnerabilities-minted-and-patched) | Proposed | CVE-keyed with the GHSA as alias, alias-aware lookup, partial patches only, null never false |
@@ -84,7 +84,7 @@ The operator step is a stdlib-only script shipped with the plugin (no Django imp
 | ACID | Title | Status | Description | Notes |
 | --- | --- | :---: | --- | --- |
 | req-grype-binary-1 | Pin Validates | Implemented | `binary.json` validates against its schema, names one version and a `sha256` per supported platform, and the installer refuses any archive whose digest differs. | A tampered-archive test. `tests/test_binary.py` `TestPinFile`, `TestInstaller::test_a_digest_mismatch_is_refused_and_writes_nothing`; the schema half of the agreement test runs only where `jsonschema` is importable and is skipped loudly elsewhere. |
-| req-grype-binary-2 | Version Gate | Proposed | A fire whose `grype --version` differs from the pin ends before any SBOM is built, as a failed collection job naming both versions, and writes no run, finding or edge. | The binary that ran is the one that was pinned. |
+| req-grype-binary-2 | Version Gate | Proposed | A fire whose `grype --version` differs from the pin ends before any SBOM is built, as a failed collection job naming both versions, and writes no run, finding or edge. | The binary that ran is the one that was pinned. Observed 2026-10-16 (ran, Grype v0.120.1 in a container): `grype --version` prints `grype 0.120.1`. The gate itself waits on the collector. |
 | req-grype-binary-3 | Honest FIPS Declaration | Proposed | The manifest carries `[fips]` with `uses-nonvalidated` and a non-empty reason, `validate_plugin --strict` passes, and this spec states that the declaration is unverified by the crypto-BOM check. | |
 | req-grype-binary-4 | Installer Is Idempotent | Implemented | Running the installer twice leaves one binary and a correct link; a failed download leaves the previous binary in place. | `tests/test_binary.py` `TestInstaller` (idempotent re-run, failed download keeps the previous binary). |
 | req-grype-binary-5 | Bump Is Checked | Proposed | A change to the pin is accepted only when the archive's digest equals the digest in the release's own published checksums file, checked by a script run at the bump, and the bump records the upstream signing identity where Anchore publishes one. | The check that turns a copied checksum into a verified one. Built: the digest-equality half (`pin_tool`, `TestPinTool`). Not built: the upstream signing identity (the release publishes a sigstore bundle; checking it needs cosign), so this stays Proposed. |
@@ -96,7 +96,7 @@ The operator step is a stdlib-only script shipped with the plugin (no Django imp
 ----
 RID: `req-grype-database`
 
-Status: `Proposed`
+Status: `In Development`
 
 Grype matches against a vulnerability database that Anchore builds daily. The plugin refreshes it with its own collector on its own schedule, and a scan only reads the database already installed, so a scan never depends on a download and a failed refresh costs nothing but age. Where the TAP container cannot reach Anchore, an operator mirror directory is the fallback. A run whose database is missing or older than the limit ends without touching any finding.
 
@@ -110,17 +110,19 @@ Grype matches against a vulnerability database that Anchore builds daily. The pl
 
 **Age rule.** The limit is `database_max_age_days` in `<home>/settings.json`, default 3 (George's ruling). Age is `now − data_built_at`, Anchore's own build time and not the time of installation, so a late install does not make an old build look fresh; three days covers one missed daily refresh plus publishing lag. Whether Anchore publishes every day, weekends included, is NOT verified. A database older than that ends the run with outcome `db-stale`; a missing or unreadable one, `db-unavailable`. Both create a scan run (the evidence that a scan was attempted), write no finding, patch no vulnerability, write no coverage edge, and mark no target clean.
 
+**What was observed (ran 2026-10-16, Grype v0.120.1 in a container, a read-only cache, no network).** `grype db status -o json` prints `{schemaVersion, from, built, path, valid}`, for example `"built": "2026-10-15T06:30:36Z"`; on an empty cache it prints `{"schemaVersion": "", "path": ..., "valid": false, "error": "database does not exist"}`, which the plugin reads as no database and not as an error. A database lives in `<cache>/6/{vulnerability.db, import.json, last_update_check}`, the `6` being the schema major, and a fresh `grype db update` produced about 3.0 GB on disk, so two kept builds plus a staging copy peak near 9 GB. The build time `built` is not the time in the archive's file name (`…T00:29:08Z` against `built` `…T06:30:36Z`), so the plugin compares `built` from `db status` with `built` from `db status` and uses the manifest's time only to choose among archives. `data_version` is `<schemaVersion>@<built>`.
+
 #### Acceptance Criteria
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | :---: | --- | --- |
 | req-grype-database-1 | Scheduled Refresh | Proposed | The seeded refresh schedule fires `grype:database_refresh`, which installs a newer database build and records the job's outcome; the schedule is verified by the `schedule-grift-targets` guard. | |
-| req-grype-database-2 | Atomic Swap, Keep The Last | Proposed | A refresh that fails at download, import or validation leaves the previously installed database serving scans. | Failure injected at each step. |
-| req-grype-database-3 | Mirror Fallback | Proposed | With `database_mirror` set, the refresh imports from the directory and makes no network connection. | Asserted with egress blocked. |
+| req-grype-database-2 | Atomic Swap, Keep The Last | Implemented | A refresh that fails at download, import or validation leaves the previously installed database serving scans. | Failure injected at each step. `tests/test_database.py` `TestRefresh` (failure injected at update and at status; staging removed; the first-install and swap paths). |
+| req-grype-database-3 | Mirror Fallback | Proposed | With `database_mirror` set, the refresh imports from the directory and makes no network connection. | Asserted with egress blocked. Built: the import path and that it never runs `db update` (`TestMirror`). Not shown: the egress-blocked assertion. |
 | req-grype-database-4 | Scans Never Fetch | Proposed | A scan with egress blocked completes against the installed database and makes no connection attempt. | |
-| req-grype-database-5 | Age Rule | Proposed | A database older than `database_max_age_days`, or missing, ends the run `db-stale` or `db-unavailable`, changes no finding or vulnerability, and writes no coverage edge. | The run exists; the findings do not move. |
-| req-grype-database-6 | Mirror Is Verified | Proposed | An archive whose digest differs from its manifest, one built earlier than the installed database, and one stamped in the future are each refused, and the installed database keeps serving scans. | A negative substitution test. |
-| req-grype-database-7 | One Build Per Run | Proposed | A refresh that swaps `current` while a scan is running does not change the database any of that scan's documents use, and a run whose documents report different builds ends `failed`. | A concurrency test; neither job starts while the other is active. |
+| req-grype-database-5 | Age Rule | Proposed | A database older than `database_max_age_days`, or missing, ends the run `db-stale` or `db-unavailable`, changes no finding or vulnerability, and writes no coverage edge. | The run exists; the findings do not move. Built: the age function and its boundary (`TestAgeRule`). Not built: the run-level behaviour (the run exists, no finding moves), which needs the collector. |
+| req-grype-database-6 | Mirror Is Verified | Implemented | An archive whose digest differs from its manifest, one built earlier than the installed database, and one stamped in the future are each refused, and the installed database keeps serving scans. | A negative substitution test. `tests/test_database.py` `TestMirror` (digest, future build, symlink, malformed manifest, and a rollback caught after import by comparing `grype db status` builds). |
+| req-grype-database-7 | One Build Per Run | Proposed | A refresh that swaps `current` while a scan is running does not change the database any of that scan's documents use, and a run whose documents report different builds ends `failed`. | A concurrency test; neither job starts while the other is active. Built: the shared/exclusive lock and `resolve_current` (`TestLock`). Not built: a run reporting a mismatch between documents, which needs the collector. |
 
 ### The Whole-Grid Collector
 ----
