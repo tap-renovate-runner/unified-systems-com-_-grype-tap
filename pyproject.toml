@@ -1,0 +1,49 @@
+# TAP grype plugin: package-mode distribution (standalone from the first commit).
+#
+# Identity chain (pre-boot conformance gate enforces agreement):
+#   slug             = "grype"
+#   distribution     = "grype-tap"                (the -tap convention; never tap-plugin-grype)
+#   import namespace = "tap_plugin.grype"         (PEP 420, no tap_plugin/__init__.py)
+#   entry-point key  = "grype"                    (== slug)
+#
+# Spec: specs/spec-grype-v0.md.
+[project]
+name = "grype-tap"
+description = "TAP grype plugin: a grid-native Grype scan of the packages on the grid, writing findings, KEV and EPSS back."
+requires-python = ">=3.14"
+dynamic = ["version"]
+
+# Tier-0 dependencies (req-tap-plugin-arch-dependencies-1): the two vocabularies this plugin
+# reads and writes. Grype itself is NOT a Python dependency: it is a pinned release binary
+# placed by an operator step (req-grype-binary), because Grype is not published to PyPI.
+dependencies = [
+    "compliance-core-tap",
+    "computing-core-tap",
+]
+
+[project.entry-points."tap.plugins"]
+grype = "tap_plugin.grype.apps:GrypeConfig"
+
+# Developer-mode deps: the plugin's OWN dev closure (req-tap-plugin-arch-dev-deps); PEP 735,
+# never installed by boot, never in the wheel.
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-django>=4.9",
+    "factory-boy>=3.3",
+]
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+# VCS-derived PEP 440 version (req-tap-plugin-arch-versioning-1); no hand-maintained field.
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+fallback_version = "0.0.0"
+
+# PEP 420 namespace build: ship tap_plugin/grype/* with no tap_plugin/__init__.py.
+[tool.hatch.build.targets.wheel]
+only-include = ["tap_plugin/grype"]

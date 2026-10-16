@@ -1,0 +1,31 @@
+# Thin caller of core's reusable per-repo CI (req-tap-plugin-extdev-repo-ci). Two pins,
+# independent (req-tap-plugin-extdev-repo-ci-9): the `uses:` SHA pins WHICH validation
+# logic runs; the plugin's manifest `requires_tap` pins WHICH core it runs against - the
+# harness is core at the tag v<floor>, resolved by the workflow (req-tap-plugin-extdev-repo-ci-7).
+# No `harness_ref` (that is an override for the nightly and debugging, never a PR default)
+# and no `boot_profile` (retired form): the in-package tap_plugin/grype/boot/ci.boot.json
+# IS the opt-in, and conformance fails closed without it (req-boot-bootstrap-ci-record-6).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tap:
+    # A job-level block replaces the top-level one, so it restates contents: read. GitHub checks
+    # every permission a called workflow's jobs declare before any job starts; plugin-ci uploads its
+    # dependency scan as SARIF, which needs security-events: write. This grants upload to this repo's
+    # Security tab only, never code write.
+    permissions:
+      contents: read
+      security-events: write
+    # Pinned to tap main at 91def688 (2026-10-16); Renovate does not track this pin.
+    uses: unified-systems-com/tap/.github/workflows/plugin-ci.yml@91def688c2290e6422dbebdf7f5a2ddbfa44fc3a
+    with:
+      plugin_slug: grype

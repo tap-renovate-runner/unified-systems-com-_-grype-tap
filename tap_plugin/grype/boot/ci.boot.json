@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "description": "grype CI record (req-boot-bootstrap-ci-record) - the stack this plugin's own tests run in, and the one claim per-plugin CI is allowed to make: that grype is correct against the dependencies it DECLARES and nothing else. Install set is exactly the depends_on closure (compliance_core, computing_core) plus grype itself, with the dependencies at released tags and grype at a commit; the consumer flips the self entry to editable so the CHECKOUT under test runs, not the pinned revision. Population is empty: this plugin ships no GRIFT yet. DELIBERATELY EXCLUDED: every other plugin, all credentials, all required_secrets, and any population step that reaches the network, so a fork can run this lane and a nightly cannot flake on a third party (req-boot-bootstrap-ci-record-5). The Grype binary and its database are not part of this record: they are placed by an operator step (req-grype-binary), and the live corpus tier is the nightly's concern (req-grype-corpus).",
+  "install": {
+    "plugins": [
+      {
+        "slug": "compliance_core",
+        "enabled": true,
+        "source": {
+          "type": "git",
+          "url": "https://github.com/unified-systems-com/compliance-core-tap",
+          "rev": "v0.7.0",
+          "commit": "946f6a23fb03b3a2f03982228379c91d67e96434"
+        }
+      },
+      {
+        "slug": "computing_core",
+        "enabled": true,
+        "source": {
+          "type": "git",
+          "url": "https://github.com/unified-systems-com/computing-core-tap",
+          "rev": "v0.8.0",
+          "commit": "9b85706722313fd2afae978940acbebaa1985289"
+        }
+      },
+      {
+        "slug": "grype",
+        "enabled": true,
+        "source": {
+          "type": "git",
+          "url": "https://github.com/unified-systems-com/grype-tap",
+          "rev": "5427340b58be6321bfec3f4fc6c6b39144e46636",
+          "commit": "5427340b58be6321bfec3f4fc6c6b39144e46636"
+        }
+      }
+    ]
+  },
+  "population": {
+    "on_failure": "abort",
+    "steps": []
+  },
+  "fips_waivers": []
+}
