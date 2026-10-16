@@ -75,6 +75,11 @@ class TestPurl(unittest.TestCase):
             "an empty qualifier value carries no information and is left out, as the purl specification says",
         )
 
+    def test_a_string_that_cannot_be_encoded_is_refused_not_raised(self) -> None:
+        for purl in ("pkg:generic/a" + chr(0xD800) + "@1", "pkg:generic/a@1#" + chr(0xDC00), "pkg:generic/a@1?k=" + chr(0xD800)):
+            with self.subTest(repr(purl)):
+                self.assertIsNone(targets.canonical_purl(purl))
+
     def test_percent_encoding_is_normalised_and_junk_is_none(self) -> None:
         plain = "pkg:generic/openssl-fips-provider@3.5.8?download_url=https://github.com/x/y.tar.gz"
         encoded = "pkg:generic/openssl-fips-provider@3.5.8?download_url=https%3A%2F%2Fgithub.com%2Fx%2Fy.tar.gz"

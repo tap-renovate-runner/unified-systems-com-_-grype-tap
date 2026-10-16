@@ -63,10 +63,15 @@ def _unquote(value: str) -> str:
 
 
 def canonical_purl(purl: str) -> str | None:
-    """Canonical form of a purl, or None when it is malformed in any way (including undecodable escapes)."""
+    """Canonical form of a purl, or None when it is malformed in any way.
+
+    That includes an undecodable escape (``UnicodeDecodeError``) and a string that cannot be encoded at all, such as
+    one holding a lone surrogate, which JSON can produce from ``"\\ud800"`` (``UnicodeEncodeError``). Both are
+    ``UnicodeError``; neither may escape as an exception, because a malformed scanner purl must become ``no-target``.
+    """
     try:
         return _canonical_purl(purl)
-    except UnicodeDecodeError:
+    except UnicodeError:
         return None
 
 
