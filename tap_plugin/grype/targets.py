@@ -40,13 +40,16 @@ def canonical_purl(purl: str) -> str | None:
     """
     if not purl.startswith("pkg:"):
         return None
-    rest = purl[4:].lstrip("/")
+    rest = purl[4:]
+    if rest.startswith("/"):
+        return None  # a leading slash is not part of a purl; never normalised away into a valid one
     rest, _, _subpath = rest.partition("#")
     rest, _, query = rest.partition("?")
     path, at, version = rest.rpartition("@") if "@" in rest.split("/")[-1] else (rest, "", "")
-    segments = [unquote(part) for part in path.split("/") if part]
-    if len(segments) < 2:
-        return None
+    raw_segments = path.split("/")
+    if len(raw_segments) < 2 or not all(raw_segments):
+        return None  # an empty segment (``a//b``) is malformed, not a shorter path
+    segments = [unquote(part) for part in raw_segments]
     ptype, name = segments[0].lower(), segments[-1]
     namespace = "/".join(segments[1:-1])
     qualifiers = sorted((key.lower(), value) for key, value in parse_qsl(query, keep_blank_values=False))

@@ -32,6 +32,14 @@ class TestPurl(unittest.TestCase):
         self.assertNotEqual(targets.canonical_purl(a), targets.canonical_purl(a.replace("r8", "r9")))
         self.assertNotEqual(targets.canonical_purl(a), targets.canonical_purl(a.replace("libcrypto3", "libssl3")))
 
+    def test_a_malformed_purl_never_normalises_into_a_valid_one(self) -> None:
+        valid = "pkg:apk/wolfi/name@1"
+        self.assertIsNotNone(targets.canonical_purl(valid))
+        for malformed in ("pkg:/apk/wolfi/name@1", "pkg:apk//wolfi/name@1", "pkg:apk/wolfi//name@1", "pkg:apk/wolfi/name/", "pkg://apk/wolfi/name@1"):
+            with self.subTest(malformed):
+                self.assertIsNone(targets.canonical_purl(malformed))
+                self.assertNotEqual(targets.canonical_purl(malformed), targets.canonical_purl(valid))
+
     def test_percent_encoding_is_normalised_and_junk_is_none(self) -> None:
         plain = "pkg:generic/openssl-fips-provider@3.5.8?download_url=https://github.com/x/y.tar.gz"
         encoded = "pkg:generic/openssl-fips-provider@3.5.8?download_url=https%3A%2F%2Fgithub.com%2Fx%2Fy.tar.gz"
@@ -62,6 +70,16 @@ class TestMapping(unittest.TestCase):
         mapping = targets.map_matches(doc.matches, real_targets())
         self.assertEqual(mapping.unmapped, [])
         self.assertEqual(sum(len(v) for v in mapping.mapped.values()), 91)
+
+    def test_a_malformed_scanner_purl_is_unmapped_not_attached_to_a_real_target(self) -> None:
+        doc = output.parse_document(recordings.text(recordings.TAP_WEB), expected_version=VERSION)
+        real = real_targets()
+        victim = next(t for t in real if t.kind == "package")
+        match = next(m for m in doc.matches if m.artifact.purl == victim.purl)
+        broken = match.__class__(**{**match.__dict__, "artifact": match.artifact.__class__(match.artifact.name, match.artifact.version, match.artifact.type, "pkg:/" + victim.purl[4:])})
+        mapping = targets.map_matches([broken], real)
+        self.assertEqual(mapping.mapped, {})
+        self.assertEqual([r for _, r in mapping.unmapped], [targets.NO_TARGET])
 
     def test_a_match_with_no_target_is_counted_not_dropped(self) -> None:
         doc = output.parse_document(recordings.text(recordings.TAP_WEB), expected_version=VERSION)

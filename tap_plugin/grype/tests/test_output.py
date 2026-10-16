@@ -5,8 +5,11 @@ every defect case is made by damaging a copy of one of them, so a case fails for
 """
 
 import copy
+import gzip
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from datetime import date
 
 from tap_plugin.grype import facts, output
@@ -17,6 +20,36 @@ VERSION = recordings.VERSION
 
 def parse(data: dict) -> output.Document:
     return output.parse_document(json.dumps(data), expected_version=VERSION)
+
+
+class TestRecordingsAreChecked(unittest.TestCase):
+    """The gzip recordings are opaque in a diff, so the loader enforces what recorded.json claims."""
+
+    def test_the_committed_recordings_match_their_manifest(self) -> None:
+        for name, claimed in recordings.manifest()["files"].items():
+            raw = recordings.text(name).encode("utf-8")
+            self.assertEqual(len(raw), claimed["bytes"], name)
+
+    def _replacement(self, payload: bytes) -> Path:
+        directory = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: [p.unlink() for p in directory.iterdir()] and directory.rmdir())
+        (directory / recordings.LOG4J).write_bytes(gzip.compress(payload))
+        return directory
+
+    def test_a_substituted_recording_of_the_right_size_is_refused(self) -> None:
+        size = recordings.manifest()["files"][recordings.LOG4J]["bytes"]
+        with self.assertRaises(recordings.FixtureError):
+            recordings.text(recordings.LOG4J, directory=self._replacement(b" " * size))
+
+    def test_a_recording_that_decompresses_larger_than_declared_is_refused(self) -> None:
+        size = recordings.manifest()["files"][recordings.LOG4J]["bytes"]
+        with self.assertRaises(recordings.FixtureError):
+            recordings.text(recordings.LOG4J, directory=self._replacement(b"0" * (size * 50)))
+
+    def test_a_truncated_recording_is_refused(self) -> None:
+        directory = self._replacement(b"{}")
+        with self.assertRaises(recordings.FixtureError):
+            recordings.text(recordings.LOG4J, directory=directory)
 
 
 class TestRecordedDocuments(unittest.TestCase):
