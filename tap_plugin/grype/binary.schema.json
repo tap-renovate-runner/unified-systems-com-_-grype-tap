@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "grype-tap binary pin",
+  "description": "The pinned Grype release (req-grype-binary): one version and, per platform, the release archive URL and its sha256. tap_plugin.grype.binary_pin enforces these constraints and additionally requires each URL to be the release archive for the stated version.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["description", "version", "checksums_url", "platforms"],
+  "properties": {
+    "description": {"type": "string", "minLength": 1, "description": "What this file is and how it is maintained."},
+    "version": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$", "description": "The Grype release tag. The only place the version appears."},
+    "checksums_url": {"type": "string", "pattern": "^https://github\\.com/anchore/grype/releases/download/v[0-9]+\\.[0-9]+\\.[0-9]+/grype_[0-9]+\\.[0-9]+\\.[0-9]+_checksums\\.txt$", "description": "The release's own published checksums file, the source of every sha256 below."},
+    "platforms": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "description": "One entry per supported platform.",
+      "properties": {
+        "linux/amd64": {"$ref": "#/$defs/asset"},
+        "linux/arm64": {"$ref": "#/$defs/asset"}
+      }
+    }
+  },
+  "$defs": {
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "url", "sha256", "binary_sha256"],
+      "description": "One platform's release archive.",
+      "properties": {
+        "description": {"type": "string", "minLength": 1, "description": "What this archive is."},
+        "url": {"type": "string", "pattern": "^https://github\\.com/anchore/grype/releases/download/", "description": "The release archive URL."},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "The archive's sha256, copied by the pin tool from the release's published checksums and re-checked against the download."},
+        "binary_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "The sha256 of the `grype` executable inside the archive, computed by the pin tool from the verified archive. The installer re-checks the installed file against it on every run, so a replaced binary does not survive a reinstall."}
+      }
+    }
+  }
+}
