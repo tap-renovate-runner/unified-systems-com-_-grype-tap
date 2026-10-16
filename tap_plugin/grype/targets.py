@@ -65,8 +65,10 @@ def canonical_purl(purl: str) -> str | None:
     rest = purl[4:]
     if rest.startswith("/"):
         return None  # a leading slash is not part of a purl; never normalised away into a valid one
-    rest, _, subpath = rest.partition("#")
-    rest, _, query = rest.partition("?")
+    rest, hash_sign, subpath = rest.partition("#")
+    rest, question, query = rest.partition("?")
+    if (hash_sign and not subpath) or (question and not query):
+        return None  # a delimiter with nothing after it is malformed, not "no subpath" or "no qualifiers"
     path, at, version = rest.rpartition("@") if "@" in rest.split("/")[-1] else (rest, "", "")
     raw_segments = path.split("/")
     if len(raw_segments) < 2 or not all(raw_segments):

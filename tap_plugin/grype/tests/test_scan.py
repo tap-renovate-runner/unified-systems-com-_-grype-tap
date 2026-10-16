@@ -59,6 +59,10 @@ class TestPurl(unittest.TestCase):
             "pkg:generic/a@1#x//y",  # an empty subpath segment
             "pkg:generic/a@1#x/../y",  # a dot segment
             "pkg:generic/a@1#/x",
+            "pkg:generic/a@1?",  # a delimiter with nothing after it
+            "pkg:generic/a@1#",
+            "pkg:generic/a@1?#",
+            "pkg:generic/a@1?arch=x#",
         ):
             with self.subTest(malformed):
                 self.assertIsNone(targets.canonical_purl(malformed))
