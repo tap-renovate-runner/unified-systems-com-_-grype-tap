@@ -1,0 +1,991 @@
+{
+ "descriptor": {
+  "name": "grype",
+  "version": "0.120.1",
+  "db": {
+   "status": {
+    "schemaVersion": "v6.1.10",
+    "from": "https://grype.anchore.io/databases/v6/vulnerability-db_v6.1.10_2026-10-15T00:29:08Z_1792045836.tar.zst?checksum=sha256%3A2f1597f25b5089e966272b251eb4d1f9977e59d57029af1c8810deb6e5321aa2",
+    "built": "2026-10-15T06:30:36Z",
+    "path": "/cache/6/vulnerability.db",
+    "valid": true
+   },
+   "providers": {
+    "alma": {
+     "captured": "2026-10-15T00:29:23Z",
+     "input": "xxh64:7966d5f3f0bd5ba6"
+    },
+    "alpine": {
+     "captured": "2026-10-15T00:29:24Z",
+     "input": "xxh64:09e3970400e30910"
+    },
+    "amazon": {
+     "captured": "2026-10-15T00:29:38Z",
+     "input": "xxh64:9cb7cd0d030538c0"
+    },
+    "arch": {
+     "captured": "2026-10-15T00:29:39Z",
+     "input": "xxh64:19c242ecc60e8154"
+    },
+    "bitnami": {
+     "captured": "2026-10-15T00:29:18Z",
+     "input": "xxh64:4f9c8126a5a38804"
+    },
+    "chainguard": {
+     "captured": "2026-10-15T00:29:33Z",
+     "input": "xxh64:0d2e9b2b4698dd3f"
+    },
+    "chainguard-libraries": {
+     "captured": "2026-10-15T00:29:08Z",
+     "input": "xxh64:67ed0ed127c91264"
+    },
+    "debian": {
+     "captured": "2026-10-15T00:29:33Z",
+     "input": "xxh64:912d6af042b38f87"
+    },
+    "echo": {
+     "captured": "2026-10-15T00:29:25Z",
+     "input": "xxh64:cba8774f9cf061d3"
+    },
+    "eol": {
+     "captured": "2026-10-15T00:30:07Z",
+     "input": "xxh64:aa1354647814fb00"
+    },
+    "epss": {
+     "captured": "2026-10-15T00:32:34Z",
+     "input": "xxh64:279f3046816ae3da"
+    },
+    "fedora": {
+     "captured": "2026-10-15T00:30:54Z",
+     "input": "xxh64:2ddecf9b7dcf1dbc"
+    },
+    "github": {
+     "captured": "2026-10-15T00:29:53Z",
+     "input": "xxh64:bb7b7c45e026ec68"
+    },
+    "govulndb": {
+     "captured": "2026-10-15T00:29:21Z",
+     "input": "xxh64:3bdecba09ce3b1c3"
+    },
+    "hummingbird": {
+     "captured": "2026-10-15T01:37:01Z",
+     "input": "xxh64:9deb3e930e7397f8"
+    },
+    "kev": {
+     "captured": "2026-10-15T00:29:18Z",
+     "input": "xxh64:49ee07f17cb4b3da"
+    },
+    "mariner": {
+     "captured": "2026-10-15T00:29:24Z",
+     "input": "xxh64:f008e76815b41d87"
+    },
+    "minimos": {
+     "captured": "2026-10-15T00:29:24Z",
+     "input": "xxh64:3bc17fae4470dca1"
+    },
+    "nvd": {
+     "captured": "2026-10-15T01:35:47Z",
+     "input": "xxh64:455542ba55ef47eb"
+    },
+    "oracle": {
+     "captured": "2026-10-15T00:29:57Z",
+     "input": "xxh64:41ec7672083f2d89"
+    },
+    "photon": {
+     "captured": "2026-10-15T00:29:37Z",
+     "input": "xxh64:fdcdf13e19175b91"
+    },
+    "rhel": {
+     "captured": "2026-10-15T00:30:45Z",
+     "input": "xxh64:c55802bfa60d2591"
+    },
+    "secureos": {
+     "captured": "2026-10-15T00:29:35Z",
+     "input": "xxh64:802dfba019da556e"
+    },
+    "sles": {
+     "captured": "2026-10-15T00:31:24Z",
+     "input": "xxh64:dc500d521c5ffb47"
+    },
+    "ubuntu": {
+     "captured": "2026-10-15T01:35:49Z",
+     "input": "xxh64:90f548b28c80b3d4"
+    },
+    "wolfi": {
+     "captured": "2026-10-15T00:30:13Z",
+     "input": "xxh64:c8bcbe5d49dd8bfa"
+    }
+   }
+  }
+ },
+ "matches": [
+  {
+   "vulnerability": {
+    "id": "GHSA-jfh8-c2jp-5v3q",
+    "severity": "Critical",
+    "description": "Remote code injection in Log4j",
+    "dataSource": "https://github.com/advisories/GHSA-jfh8-c2jp-5v3q",
+    "fix": {
+     "versions": [
+      "2.15.0"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.15.0",
+       "date": "2021-12-10",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "knownExploited": [
+     {
+      "cve": "CVE-2021-44228",
+      "vendorProject": "Apache",
+      "product": "Log4j2",
+      "dateAdded": "2021-12-10",
+      "requiredAction": "For all affected software assets for which updates exist, the only acceptable remediation actions are: 1) Apply updates; OR 2) remove affected assets from agency networks. Temporary mitigations using one of the measures provided at https://www.cisa.gov/uscert/ed-22-02-apache-log4j-recommended-mitigation-measures are only acceptable until updates are available.",
+      "dueDate": "2021-12-24",
+      "knownRansomwareCampaignUse": "known",
+      "urls": [
+       "https://nvd.nist.gov/vuln/detail/CVE-2021-44228"
+      ],
+      "cwes": [
+       "CWE-20",
+       "CWE-400",
+       "CWE-502"
+      ]
+     }
+    ],
+    "epss": [
+     {
+      "cve": "CVE-2021-44228",
+      "epss": 0.99999,
+      "percentile": 1,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2021-44228"
+    }
+   ],
+   "artifact": {
+    "name": "log4j-core",
+    "version": "2.14.1",
+    "type": "java-archive",
+    "purl": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-7rjr-3q55-vv33",
+    "severity": "Critical",
+    "description": "Incomplete fix for Apache Log4j vulnerability",
+    "dataSource": "https://github.com/advisories/GHSA-7rjr-3q55-vv33",
+    "fix": {
+     "versions": [
+      "2.16.0"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.16.0",
+       "date": "2021-12-15",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "knownExploited": [
+     {
+      "cve": "CVE-2021-45046",
+      "vendorProject": "Apache",
+      "product": "Log4j2",
+      "dateAdded": "2023-05-01",
+      "requiredAction": "Apply updates per vendor instructions.",
+      "dueDate": "2023-05-22",
+      "knownRansomwareCampaignUse": "known",
+      "urls": [
+       "https://logging.apache.org/log4j/2.x/security.html",
+       "https://nvd.nist.gov/vuln/detail/CVE-2021-45046"
+      ],
+      "cwes": [
+       "CWE-917"
+      ]
+     }
+    ],
+    "epss": [
+     {
+      "cve": "CVE-2021-45046",
+      "epss": 0.99977,
+      "percentile": 0.9998,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2021-45046"
+    }
+   ],
+   "artifact": {
+    "name": "log4j-core",
+    "version": "2.14.1",
+    "type": "java-archive",
+    "purl": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-p6xc-xr62-6r2g",
+    "severity": "High",
+    "description": "Apache Log4j2 vulnerable to Improper Input Validation and Uncontrolled Recursion",
+    "dataSource": "https://github.com/advisories/GHSA-p6xc-xr62-6r2g",
+    "fix": {
+     "versions": [
+      "2.17.0"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.17.0",
+       "date": "2021-12-19",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "epss": [
+     {
+      "cve": "CVE-2021-45105",
+      "epss": 0.99999,
+      "percentile": 0.99991,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2021-45105"
+    }
+   ],
+   "artifact": {
+    "name": "log4j-core",
+    "version": "2.14.1",
+    "type": "java-archive",
+    "purl": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-8489-44mv-ggj8",
+    "severity": "Medium",
+    "description": "Improper Input Validation and Injection in Apache Log4j2",
+    "dataSource": "https://github.com/advisories/GHSA-8489-44mv-ggj8",
+    "fix": {
+     "versions": [
+      "2.17.1"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.17.1",
+       "date": "2022-01-05",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "epss": [
+     {
+      "cve": "CVE-2021-44832",
+      "epss": 0.97906,
+      "percentile": 0.99909,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2021-44832"
+    }
+   ],
+   "artifact": {
+    "name": "log4j-core",
+    "version": "2.14.1",
+    "type": "java-archive",
+    "purl": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-3pxv-7cmr-fjr4",
+    "severity": "Medium",
+    "description": "Apache Log4j Core: Silent log event loss in XmlLayout due to unescaped XML 1.0 forbidden characters",
+    "dataSource": "https://github.com/advisories/GHSA-3pxv-7cmr-fjr4",
+    "fix": {
+     "versions": [
+      "2.25.4"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.25.4",
+       "date": "2026-04-11",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "epss": [
+     {
+      "cve": "CVE-2026-34480",
+      "epss": 0.01187,
+      "percentile": 0.67259,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2026-34480"
+    }
+   ],
+   "artifact": {
+    "name": "log4j-core",
+    "version": "2.14.1",
+    "type": "java-archive",
+    "purl": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-vc5p-v9hr-52mj",
+    "severity": "Medium",
+    "description": "Apache Log4j does not verify the TLS hostname in its Socket Appender",
+    "dataSource": "https://github.com/advisories/GHSA-vc5p-v9hr-52mj",
+    "fix": {
+     "versions": [
+      "2.25.3"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.25.3",
+       "date": "2025-12-20",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "epss": [
+     {
+      "cve": "CVE-2025-68161",
+      "epss": 0.00767,
+      "percentile": 0.54515,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2025-68161"
+    }
+   ],
+   "artifact": {
+    "name": "log4j-core",
+    "version": "2.14.1",
+    "type": "java-archive",
+    "purl": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-6hg6-v5c8-fphq",
+    "severity": "Medium",
+    "description": "Apache Log4j Core: `verifyHostName` attribute silently ignored in TLS configuration",
+    "dataSource": "https://github.com/advisories/GHSA-6hg6-v5c8-fphq",
+    "fix": {
+     "versions": [
+      "2.25.4"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.25.4",
+       "date": "2026-04-14",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "epss": [
+     {
+      "cve": "CVE-2026-34477",
+      "epss": 0.00502,
+      "percentile": 0.41467,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2026-34477"
+    }
+   ],
+   "artifact": {
+    "name": "log4j-core",
+    "version": "2.14.1",
+    "type": "java-archive",
+    "purl": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-2gx3-rcp4-g85q",
+    "severity": "Medium",
+    "description": "PyJWT: PyJWKClient still amplifies unauthenticated JWKS fetches on unknown kid values (incomplete fix of CVE-2026-48524)",
+    "dataSource": "https://github.com/advisories/GHSA-2gx3-rcp4-g85q",
+    "fix": {
+     "versions": [
+      "2.14.0"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.14.0",
+       "date": "2026-09-30",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "epss": [
+     {
+      "cve": "CVE-2026-101917",
+      "epss": 0.00418,
+      "percentile": 0.3455,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2026-101917"
+    }
+   ],
+   "artifact": {
+    "name": "PyJWT",
+    "version": "2.13.0",
+    "type": "python",
+    "purl": "pkg:pypi/pyjwt@2.13.0"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-w6j9-cwv2-h6wq",
+    "severity": "Medium",
+    "description": "PyJWT: Malformed RSA JWK aborts parsing of an entire JWK Set",
+    "dataSource": "https://github.com/advisories/GHSA-w6j9-cwv2-h6wq",
+    "fix": {
+     "versions": [
+      "2.14.0"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.14.0",
+       "date": "2026-09-30",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "epss": [
+     {
+      "cve": "CVE-2026-102274",
+      "epss": 0.00389,
+      "percentile": 0.31329,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2026-102274"
+    }
+   ],
+   "artifact": {
+    "name": "PyJWT",
+    "version": "2.13.0",
+    "type": "python",
+    "purl": "pkg:pypi/pyjwt@2.13.0"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-42vr-xj54-vc7v",
+    "severity": "Medium",
+    "description": "PyJWT: Unauthenticated RecursionError DoS in pre-verification payload parse (PyJWKClient.get_signing_key_from_jwt / verify_signature=False)",
+    "dataSource": "https://github.com/advisories/GHSA-42vr-xj54-vc7v",
+    "fix": {
+     "versions": [
+      "2.15.0"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.15.0",
+       "date": "2026-09-30",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "epss": [
+     {
+      "cve": "CVE-2026-101918",
+      "epss": 0.00358,
+      "percentile": 0.27878,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2026-101918"
+    }
+   ],
+   "artifact": {
+    "name": "PyJWT",
+    "version": "2.13.0",
+    "type": "python",
+    "purl": "pkg:pypi/pyjwt@2.13.0"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-ffc3-869f-jxw9",
+    "severity": "Critical",
+    "description": "PyJWT: Asymmetric-PEM detection bypass: whitespace/line-ending-mutated public keys skip the HS/asymmetric confusion guard",
+    "dataSource": "https://github.com/advisories/GHSA-ffc3-869f-jxw9",
+    "fix": {
+     "versions": [
+      "2.14.0"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.14.0",
+       "date": "2026-09-30",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "epss": [
+     {
+      "cve": "CVE-2026-102268",
+      "epss": 0.00202,
+      "percentile": 0.09439,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2026-102268"
+    }
+   ],
+   "artifact": {
+    "name": "PyJWT",
+    "version": "2.13.0",
+    "type": "python",
+    "purl": "pkg:pypi/pyjwt@2.13.0"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-8wjv-2p76-3863",
+    "severity": "Medium",
+    "description": "PyJWT: Uncaught RecursionError in jwt.decode() on deeply nested token header",
+    "dataSource": "https://github.com/advisories/GHSA-8wjv-2p76-3863",
+    "fix": {
+     "versions": [
+      "2.14.0"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.14.0",
+       "date": "2026-09-30",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "epss": [
+     {
+      "cve": "CVE-2026-102265",
+      "epss": 0.00301,
+      "percentile": 0.21244,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2026-102265"
+    }
+   ],
+   "artifact": {
+    "name": "PyJWT",
+    "version": "2.13.0",
+    "type": "python",
+    "purl": "pkg:pypi/pyjwt@2.13.0"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-gvp8-978c-rx2q",
+    "severity": "Medium",
+    "description": "PyJWT.decode() reintroduces options-dict mutation, enabling silent claim-verification bypass on dict reuse",
+    "dataSource": "https://github.com/advisories/GHSA-gvp8-978c-rx2q",
+    "fix": {
+     "versions": [],
+     "state": "not-fixed"
+    },
+    "epss": [
+     {
+      "cve": "CVE-2026-103001",
+      "epss": 0.00241,
+      "percentile": 0.14213,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2026-103001"
+    }
+   ],
+   "artifact": {
+    "name": "PyJWT",
+    "version": "2.13.0",
+    "type": "python",
+    "purl": "pkg:pypi/pyjwt@2.13.0"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-9j54-fg26-wv3r",
+    "severity": "High",
+    "description": "PyJWT: PyJWK accepts empty HMAC keys, bypassing PyJWT's empty-key validation",
+    "dataSource": "https://github.com/advisories/GHSA-9j54-fg26-wv3r",
+    "fix": {
+     "versions": [
+      "2.14.0"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.14.0",
+       "date": "2026-09-30",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "epss": [
+     {
+      "cve": "CVE-2026-102266",
+      "epss": 0.00182,
+      "percentile": 0.07267,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2026-102266"
+    }
+   ],
+   "artifact": {
+    "name": "PyJWT",
+    "version": "2.13.0",
+    "type": "python",
+    "purl": "pkg:pypi/pyjwt@2.13.0"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-r6x4-923q-g947",
+    "severity": "High",
+    "description": "PyJWT BOM Bypass",
+    "dataSource": "https://github.com/advisories/GHSA-r6x4-923q-g947",
+    "fix": {
+     "versions": [
+      "2.14.0"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.14.0",
+       "date": "2026-09-30",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "epss": [
+     {
+      "cve": "CVE-2026-102272",
+      "epss": 0.00182,
+      "percentile": 0.07228,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2026-102272"
+    }
+   ],
+   "artifact": {
+    "name": "PyJWT",
+    "version": "2.13.0",
+    "type": "python",
+    "purl": "pkg:pypi/pyjwt@2.13.0"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-p4g4-x82p-q773",
+    "severity": "High",
+    "description": "PyJWT: Public keys in DER form are accepted as HMAC secrets, bypassing the CVE-2022-29217 guard",
+    "dataSource": "https://github.com/advisories/GHSA-p4g4-x82p-q773",
+    "fix": {
+     "versions": [
+      "2.14.0"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.14.0",
+       "date": "2026-09-30",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "epss": [
+     {
+      "cve": "CVE-2026-102271",
+      "epss": 0.0018,
+      "percentile": 0.07099,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2026-102271"
+    }
+   ],
+   "artifact": {
+    "name": "PyJWT",
+    "version": "2.13.0",
+    "type": "python",
+    "purl": "pkg:pypi/pyjwt@2.13.0"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-w2cx-738m-mc7w",
+    "severity": "High",
+    "description": "PyJWT accepts public JWK containers as HMAC secrets",
+    "dataSource": "https://github.com/advisories/GHSA-w2cx-738m-mc7w",
+    "fix": {
+     "versions": [
+      "2.14.0"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.14.0",
+       "date": "2026-09-30",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "epss": [
+     {
+      "cve": "CVE-2026-102273",
+      "epss": 0.00175,
+      "percentile": 0.06466,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2026-102273"
+    }
+   ],
+   "artifact": {
+    "name": "PyJWT",
+    "version": "2.13.0",
+    "type": "python",
+    "purl": "pkg:pypi/pyjwt@2.13.0"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-9v7f-9g4p-ffgj",
+    "severity": "High",
+    "description": "PyJWT: PyJWKClient follows redirects when fetching JWKS",
+    "dataSource": "https://github.com/advisories/GHSA-9v7f-9g4p-ffgj",
+    "fix": {
+     "versions": [
+      "2.14.0"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.14.0",
+       "date": "2026-09-30",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "epss": [
+     {
+      "cve": "CVE-2026-102267",
+      "epss": 0.00159,
+      "percentile": 0.04542,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2026-102267"
+    }
+   ],
+   "artifact": {
+    "name": "PyJWT",
+    "version": "2.13.0",
+    "type": "python",
+    "purl": "pkg:pypi/pyjwt@2.13.0"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-jwrc-g2q2-pq5p",
+    "severity": "Medium",
+    "description": "PyJWT: ReDoS vulnerability when calling the `is_pem_format` function.",
+    "dataSource": "https://github.com/advisories/GHSA-jwrc-g2q2-pq5p",
+    "fix": {
+     "versions": [
+      "2.14.0"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.14.0",
+       "date": "2026-09-30",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "epss": [
+     {
+      "cve": "CVE-2026-102270",
+      "epss": 0.00212,
+      "percentile": 0.10709,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2026-102270"
+    }
+   ],
+   "artifact": {
+    "name": "PyJWT",
+    "version": "2.13.0",
+    "type": "python",
+    "purl": "pkg:pypi/pyjwt@2.13.0"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-hxm8-2xgr-2p9m",
+    "severity": "Medium",
+    "description": "PyJWT: Non-canonical signature segments enable raw-token revocation bypass",
+    "dataSource": "https://github.com/advisories/GHSA-hxm8-2xgr-2p9m",
+    "fix": {
+     "versions": [
+      "2.14.0"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.14.0",
+       "date": "2026-09-30",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "epss": [
+     {
+      "cve": "CVE-2026-102269",
+      "epss": 0.00191,
+      "percentile": 0.08134,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2026-102269"
+    }
+   ],
+   "artifact": {
+    "name": "PyJWT",
+    "version": "2.13.0",
+    "type": "python",
+    "purl": "pkg:pypi/pyjwt@2.13.0"
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-x33g-cr3x-6449",
+    "severity": "Medium",
+    "description": "PyJWT accepts inconsistent OKP x/d JWKs, causing public/private key identity confusion",
+    "dataSource": "https://github.com/advisories/GHSA-x33g-cr3x-6449",
+    "fix": {
+     "versions": [
+      "2.15.0"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.15.0",
+       "date": "2026-10-06",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "epss": [
+     {
+      "cve": "CVE-2026-102275",
+      "epss": 0.00143,
+      "percentile": 0.03188,
+      "date": "2026-10-14"
+     }
+    ]
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2026-102275"
+    }
+   ],
+   "artifact": {
+    "name": "PyJWT",
+    "version": "2.13.0",
+    "type": "python",
+    "purl": "pkg:pypi/pyjwt@2.13.0"
+   }
+  }
+ ]
+}

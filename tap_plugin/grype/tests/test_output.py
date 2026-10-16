@@ -5,7 +5,6 @@ every defect case is made by damaging a copy of one of them, so a case fails for
 """
 
 import copy
-import gzip
 import json
 import tempfile
 import unittest
@@ -23,7 +22,7 @@ def parse(data: dict) -> output.Document:
 
 
 class TestRecordingsAreChecked(unittest.TestCase):
-    """The gzip recordings are opaque in a diff, so the loader enforces what recorded.json claims."""
+    """The recordings are plain JSON, and the loader still enforces what recorded.json claims."""
 
     def test_the_committed_recordings_match_their_manifest(self) -> None:
         for name, claimed in recordings.manifest()["files"].items():
@@ -33,7 +32,7 @@ class TestRecordingsAreChecked(unittest.TestCase):
     def _replacement(self, payload: bytes) -> Path:
         directory = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: [p.unlink() for p in directory.iterdir()] and directory.rmdir())
-        (directory / recordings.LOG4J).write_bytes(gzip.compress(payload))
+        (directory / recordings.LOG4J).write_bytes(payload)
         return directory
 
     def test_a_substituted_recording_of_the_right_size_is_refused(self) -> None:
@@ -41,25 +40,15 @@ class TestRecordingsAreChecked(unittest.TestCase):
         with self.assertRaises(recordings.FixtureError):
             recordings.text(recordings.LOG4J, directory=self._replacement(b" " * size))
 
-    def test_a_recording_that_decompresses_larger_than_declared_is_refused(self) -> None:
-        size = recordings.manifest()["files"][recordings.LOG4J]["bytes"]
+    def test_one_changed_byte_in_a_genuine_recording_is_refused(self) -> None:
+        genuine = bytearray((recordings.FIXTURES / recordings.LOG4J).read_bytes())
+        genuine[-3] ^= 0x01
         with self.assertRaises(recordings.FixtureError):
-            recordings.text(recordings.LOG4J, directory=self._replacement(b"0" * (size * 50)))
-
-    def test_bytes_hidden_after_the_gzip_stream_are_refused(self) -> None:
-        name = recordings.LOG4J
-        genuine = (recordings.FIXTURES / name).read_bytes()
-        for label, trailer in {"junk": b"hidden", "a second member": gzip.compress(b"payload")}.items():
-            directory = Path(tempfile.mkdtemp())
-            self.addCleanup(lambda d=directory: [p.unlink() for p in d.iterdir()] and d.rmdir())
-            (directory / name).write_bytes(genuine + trailer)
-            with self.subTest(label), self.assertRaises(recordings.FixtureError):
-                recordings.text(name, directory=directory)
+            recordings.text(recordings.LOG4J, directory=self._replacement(bytes(genuine)))
 
     def test_a_truncated_recording_is_refused(self) -> None:
-        directory = self._replacement(b"{}")
         with self.assertRaises(recordings.FixtureError):
-            recordings.text(recordings.LOG4J, directory=directory)
+            recordings.text(recordings.LOG4J, directory=self._replacement(b"{}"))
 
 
 class TestRecordedDocuments(unittest.TestCase):
