@@ -118,6 +118,28 @@ class TestStatus(unittest.TestCase):
                 database.parse_status(text)
 
 
+    def test_a_schema_version_that_is_not_a_plain_version_is_refused(self) -> None:
+        # The schema version becomes part of a directory name, so path-like values must not parse.
+        for schema in ("v6/../../x", "v", "v6.1.10.4", "v6.1.10-rc1", "V6", "../v6", "v6\x00", "v" + "9" * 9):
+            with self.subTest(schema):
+                text = json.dumps({"schemaVersion": schema, "path": "p", "valid": True, "built": "2026-10-15T06:30:36Z"})
+                with self.assertRaises(DatabaseError):
+                    database.parse_status(text)
+
+    def test_a_failed_status_command_cannot_pass_with_valid_looking_output(self) -> None:
+        def contradictory(argv, env):
+            return RunResult(2, OBSERVED_VALID, "boom")
+
+        with self.assertRaises(DatabaseError):
+            database.read_status(BINARY, Path("/nonexistent"), contradictory)
+
+    def test_a_failed_status_command_on_an_empty_cache_is_no_database(self) -> None:
+        def empty(argv, env):
+            return RunResult(1, OBSERVED_EMPTY, "ERROR database does not exist")
+
+        self.assertIsNone(database.read_status(BINARY, Path("/nonexistent"), empty))
+
+
 class TestAgeRule(unittest.TestCase):
     def status(self, age: timedelta):
         return database.DbStatus("v6.1.10", NOW - age, None)
@@ -176,6 +198,23 @@ class TestRefresh(TempHome):
             self.assertEqual(self.current_build(), before)
             self.assertEqual(self.builds(), [before])
             self.assertEqual([p.name for p in (self.home / "db").iterdir() if p.name.startswith(".staging")], [])
+
+    def test_a_prune_failure_does_not_turn_a_completed_swap_into_a_failed_refresh(self) -> None:
+        self.refresh(NOW - timedelta(hours=72))
+        self.refresh(NOW - timedelta(hours=48))
+        real = database._prune
+
+        def failing(home, keep):
+            raise PermissionError("read-only volume")
+
+        database._prune = failing
+        try:
+            result, _ = self.refresh(NOW - timedelta(hours=24))
+        finally:
+            database._prune = real
+        self.assertEqual(result.outcome, "installed")
+        self.assertTrue(result.warnings and "prune" in result.warnings[0])
+        self.assertEqual(self.current_build(), "6.1.10-20261015T120000Z", "the new build is serving")
 
     def test_a_refresh_that_does_not_validate_is_refused(self) -> None:
         class NoDb(FakeGrype):
@@ -243,6 +282,20 @@ class TestMirror(TempHome):
                 build()
                 with self.assertRaises(mirror.MirrorError):
                     mirror.select_archive(self.root / "mirror", now=NOW)
+
+    def test_the_archive_digest_is_computed_in_chunks_not_by_reading_it_whole(self) -> None:
+        directory = self.make_mirror("big.tar.zst", b"x" * (3 * 1024 * 1024 + 7), NOW - timedelta(hours=1))
+        original = Path.read_bytes
+
+        def forbidden(self):  # pragma: no cover - failing is the point
+            raise AssertionError("the archive must not be read into memory whole")
+
+        Path.read_bytes = forbidden
+        try:
+            chosen = mirror.select_archive(directory, now=NOW)
+        finally:
+            Path.read_bytes = original
+        self.assertEqual(chosen.path.name, "big.tar.zst")
 
     def test_a_symlinked_archive_and_a_malformed_manifest_are_refused(self) -> None:
         directory = self.make_mirror("real.tar.zst", b"data", NOW - timedelta(hours=1))

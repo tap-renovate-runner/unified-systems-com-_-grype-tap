@@ -60,6 +60,15 @@ def _parse_manifest(path: Path) -> tuple[str, str, datetime]:
     return archive, digest, parse_time(data["built"])
 
 
+def _sha256_of(path: Path) -> str:
+    """The file's sha256, read in chunks so a large or oversized archive cannot exhaust memory."""
+    hasher = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
 def select_archive(directory: Path, *, now: datetime) -> MirrorArchive:
     """The newest verified archive, newest by its manifest's ``built`` and never by file modification time.
 
@@ -78,7 +87,7 @@ def select_archive(directory: Path, *, now: datetime) -> MirrorArchive:
     archive = directory / name
     if archive.is_symlink() or not archive.is_file():
         raise MirrorError(f"{name} is missing or is not a regular file; refusing it")
-    actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+    actual = _sha256_of(archive)
     if actual != digest:
         raise MirrorError(f"{name} hashes to {actual}, its manifest says {digest}; refusing it")
     return MirrorArchive(path=archive, built=built, sha256=digest)

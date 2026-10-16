@@ -19,6 +19,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import shutil
 import subprocess
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -38,6 +39,8 @@ UNAVAILABLE = "db-unavailable"
 KEEP_BUILDS = 2
 COMMAND_TIMEOUT_SECONDS = 1800
 _STATUS_KEYS = {"schemaVersion", "from", "built", "path", "valid", "error"}
+#: A schema version becomes part of a directory name, so it is allowlisted, not trusted: ``v6``, ``v6.1``, ``v6.1.10``.
+_SCHEMA_VERSION = re.compile(r"^v\d{1,3}(\.\d{1,3}){0,2}$")
 
 
 class DatabaseError(RuntimeError):
@@ -85,7 +88,7 @@ def parse_status(text: str) -> DbStatus | None:
             raise DatabaseError("db status `valid` must be a boolean")
         return None
     schema, source = data["schemaVersion"], data.get("from")
-    if not isinstance(schema, str) or not schema.startswith("v"):
+    if not isinstance(schema, str) or not _SCHEMA_VERSION.match(schema):
         raise DatabaseError(f"db status schemaVersion {schema!r} is not a version")
     try:
         built = parse_time(data.get("built"))
@@ -166,7 +169,11 @@ def grype_env(cache_dir: Path, *, auto_update: bool) -> dict[str, str]:
 def read_status(binary: Path, cache_dir: Path, run: Runner = run_command) -> DbStatus | None:
     """``grype db status -o json`` against a cache directory, with auto-update off."""
     result = run([str(binary), "db", "status", "-o", "json"], grype_env(cache_dir, auto_update=False))
-    return parse_status(result.stdout)
+    status = parse_status(result.stdout)
+    if status is not None and result.returncode != 0:
+        # A healthy-looking answer from a command that failed is a contradiction, never a pass.
+        raise DatabaseError(f"`grype db status` exited {result.returncode} yet printed a valid database")
+    return status
 
 
 @dataclass(frozen=True)
@@ -175,6 +182,7 @@ class RefreshResult:
 
     outcome: str
     status: DbStatus
+    warnings: tuple[str, ...] = ()
 
 
 def _prune(home: Path, keep: int) -> None:
@@ -244,7 +252,12 @@ def refresh(
                 shutil.rmtree(target)
             os.replace(stage, target)
             repoint(db_dir / "current", target.name)
-            _prune(home, KEEP_BUILDS)
+            # The new build is serving as of the line above. A failure to tidy older builds must not be
+            # reported as a failed refresh: the database did change, and the caller must be told so.
+            try:
+                _prune(home, KEEP_BUILDS)
+            except OSError as exc:
+                return RefreshResult(outcome="installed", status=staged, warnings=(f"could not prune old builds: {exc}",))
             return RefreshResult(outcome="installed", status=staged)
         finally:
             shutil.rmtree(stage, ignore_errors=True)
