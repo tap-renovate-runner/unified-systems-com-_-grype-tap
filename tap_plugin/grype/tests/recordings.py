@@ -1,10 +1,9 @@
-"""Loads the recorded native Grype outputs (tests/fixtures) for the recorded tier of req-grype-corpus."""
+"""Loads the recorded native Grype outputs (tests/fixtures, plain JSON) for the recorded tier of req-grype-corpus."""
 
 from __future__ import annotations
 
 import hashlib
 import json
-import zlib
 from pathlib import Path
 
 FIXTURES = Path(__file__).with_name("fixtures")
@@ -21,20 +20,15 @@ def manifest() -> dict:
 
 
 def text(name: str, *, directory: Path = FIXTURES) -> str:
-    """The recording's JSON text, e.g. ``tap-web.grype-0.120.1.json.gz``.
+    """The recording's JSON text, e.g. ``tap-web.grype-0.120.1.trimmed.json``.
 
-    The recording is opaque to a reader of the diff, so it is never trusted blind: decompression is bounded
-    by the size the manifest declares (a gzip bomb cannot allocate more), and the result must equal the
-    manifest's byte count and sha256 before any test sees it. Bytes after the gzip stream (a hidden second
-    member, a trailer) are refused too: the file holds exactly the recording and nothing else.
+    The recordings are plain JSON a reviewer can read in the diff. They are still checked against
+    recorded.json before any test sees them, so an edit that changes a recording without updating the manifest
+    (and so without being noticed in review) fails here.
     """
     claimed = manifest()["files"][name]
-    limit = claimed["bytes"]
-    inflater = zlib.decompressobj(wbits=31)  # gzip framing
-    raw = inflater.decompress((directory / name).read_bytes(), limit + 1)
-    if len(raw) > limit or inflater.unconsumed_tail or not inflater.eof or inflater.unused_data:
-        raise FixtureError(f"{name} decompresses to more than the {limit} bytes recorded.json declares")
-    if len(raw) != limit or hashlib.sha256(raw).hexdigest() != claimed["uncompressed_sha256"]:
+    raw = (directory / name).read_bytes()
+    if len(raw) != claimed["bytes"] or hashlib.sha256(raw).hexdigest() != claimed["sha256"]:
         raise FixtureError(f"{name} does not match the size and sha256 in recorded.json")
     return raw.decode("utf-8")
 
@@ -44,5 +38,5 @@ def data(name: str) -> dict:
     return json.loads(text(name))
 
 
-TAP_WEB = "tap-web.grype-0.120.1.json.gz"
-LOG4J = "log4j.grype-0.120.1.json.gz"
+TAP_WEB = "tap-web.grype-0.120.1.trimmed.json"
+LOG4J = "log4j.grype-0.120.1.trimmed.json"

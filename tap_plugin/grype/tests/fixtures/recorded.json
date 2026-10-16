@@ -1,17 +1,19 @@
 {
-  "description": "Native JSON (`grype <sbom> -o json`) recorded once from Grype v0.120.1 and fed through the parser by the recorded tier of req-grype-corpus. Recorded by the rampart-pg session on 2026-10-15; copied here unchanged apart from gzip. The live tier re-runs the real binary.",
+  "description": "Native JSON (`grype <sbom> -o json`) recorded once from Grype v0.120.1 and fed through the parser by the recorded tier of req-grype-corpus. Recorded by the rampart-pg session on 2026-10-15, then trimmed here to the fields the parser reads (descriptor name, version and db; per match the vulnerability id, severity, description, dataSource, fix, knownExploited and epss, the related vulnerability ids, and the artifact name, version, type and purl) and committed as plain JSON so a reviewer can read it. Every match is kept (91 and 21); values are unchanged. The live tier re-runs the real binary.",
   "grype_version": "0.120.1",
   "database": "v6.1.10, built 2026-10-15T06:30:36Z",
   "files": {
-    "tap-web.grype-0.120.1.json.gz": {
+    "tap-web.grype-0.120.1.trimmed.json": {
       "input": "the tap-web image SBOM (sha256:a9149a88..., 192 components) with the full purl, cpe and cpe candidates",
-      "uncompressed_sha256": "d9a64cc1446a0c266852431b3ce2d524c510debce5bd7f14ec56661ec98fa234",
-      "bytes": 385391
+      "sha256": "7506e8f9d38e09b76b0011d735d26777b3a3ca6c0d95b0dd7f50376c2b7adb16",
+      "bytes": 143642,
+      "matches": 91
     },
-    "log4j.grype-0.120.1.json.gz": {
+    "log4j.grype-0.120.1.trimmed.json": {
       "input": "a log4j-core 2.14.1 SBOM",
-      "uncompressed_sha256": "3b0777959e4c19d0264904d9a9e733a50422c8fc8f7df3e9661c16b9f65d79dd",
-      "bytes": 96428
+      "sha256": "dd24dc8c629de260055f5377a3f64cbdb7c4a890682c4d567049d334e5bb2bff",
+      "bytes": 22040,
+      "matches": 21
     }
   }
 }
