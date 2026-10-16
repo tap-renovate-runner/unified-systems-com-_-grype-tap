@@ -21,7 +21,7 @@ scripts/spawn-session.sh <label> cli --from 'git+https://github.com/unified-syst
 
 Two things the spawn will not tell you until it fails:
 
-- `--from` clones a **branch or tag name**. A commit sha fails at the stage-0 fetch (`Remote branch <sha> not found`). This repository has no release tag yet, so use `main`.
+- `--from` clones a **branch or tag name**. A commit sha fails at the stage-0 fetch (`Remote branch <sha> not found`). This repository has no release tag yet, so use `main`, or the name of your own branch when the work you are testing lives on one; `@main` reads `main`'s `ci` record and nothing about your branch.
 - The `ci` record pins this plugin at a commit, and the spawn clones `_dev-plugins/grype` at **that** commit, which can predate the package. Pre-boot then aborts with `/app/_dev-plugins/grype does not appear to be a Python project`. Move the clone to the code under test and bring the stack up again:
 
   ```sh
