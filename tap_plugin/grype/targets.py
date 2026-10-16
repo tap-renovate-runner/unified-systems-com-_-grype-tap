@@ -10,11 +10,22 @@ carries no ecosystem, so a library is found by its canonical purl alone.
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from dataclasses import dataclass
-from urllib.parse import parse_qsl, quote, unquote
+from urllib.parse import quote, unquote
 
 from tap_plugin.grype.output import Match
+
+_BAD_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
+#: The purl delimiter grammar, checked on the RAW string before anything is decoded or re-encoded:
+#: ``pkg:type/namespace/name@version?qualifiers#subpath``. ``@``, ``?`` and ``#`` are structural, so each may appear
+#: at most once, in that order, and never inside a part (inside a part they must arrive percent-encoded). Checking
+#: this first means a repeated or misplaced delimiter cannot be absorbed by the encoder and made to equal a valid purl.
+_PURL_GRAMMAR = re.compile(
+    r"pkg:[A-Za-z][A-Za-z0-9.+-]*/[^/?#@]+(?:/[^/?#@]+)*(?:@[^/?#@]+)?(?:\?[^?#]*)?(?:#[^?#@]*)?"
+)
+_QUALIFIER_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9._-]*$")
 
 NO_TARGET = "no-target"
 AMBIGUOUS = "ambiguous"
@@ -32,39 +43,85 @@ class Target:
     purl: str | None = None
 
 
+def _qualifiers(query: str) -> list[tuple[str, str]] | None:
+    """The qualifiers sorted by key, or None when the syntax is not ``key=value&key=value``.
+
+    A pair with no ``=``, an empty or odd key, or a key given twice is malformed. A pair whose value is empty is
+    valid and carries no information, so it is left out, as the purl specification says.
+    """
+    if not query:
+        return []
+    pairs: dict[str, str] = {}
+    for item in query.split("&"):
+        key, equals, value = item.partition("=")
+        if not equals or not _QUALIFIER_KEY.match(key) or key.lower() in pairs:
+            return None
+        pairs[key.lower()] = _unquote(value)
+    return sorted((key, value) for key, value in pairs.items() if value)
+
+
+def _unquote(value: str) -> str:
+    """Percent-decode strictly: an escape that is not valid UTF-8 is an error, never replaced by U+FFFD.
+
+    ``urllib.parse.unquote`` defaults to ``errors="replace"``, which would make ``%FF`` and ``%FE`` decode alike
+    and so let two different malformed purls compare equal.
+    """
+    return unquote(value, errors="strict")
+
+
 def canonical_purl(purl: str) -> str | None:
+    """Canonical form of a purl, or None when it is malformed in any way.
+
+    That includes an undecodable escape (``UnicodeDecodeError``) and a string that cannot be encoded at all, such as
+    one holding a lone surrogate, which JSON can produce from ``"\\ud800"`` (``UnicodeEncodeError``). Both are
+    ``UnicodeError``; neither may escape as an exception, because a malformed scanner purl must become ``no-target``.
+    """
+    try:
+        return _canonical_purl(purl)
+    except UnicodeError:
+        return None
+
+
+def _canonical_purl(purl: str) -> str | None:
     """A purl in one spelling: lowercase type, decoded then re-encoded parts, qualifiers sorted by key.
 
     Returns None for anything that is not a ``pkg:`` purl with a type and a name, so a malformed purl can
     never equal another by accident. Grype regenerates purls, so the same package arrives spelled differently
     (qualifier order, percent-encoding); both sides go through this one function.
     """
-    if not purl.startswith("pkg:"):
-        return None
+    if not _PURL_GRAMMAR.fullmatch(purl) or _BAD_ESCAPE.search(purl):
+        return None  # a misplaced delimiter or an invalid percent escape is malformed, never repaired into a valid purl
     rest = purl[4:]
     if rest.startswith("/"):
         return None  # a leading slash is not part of a purl; never normalised away into a valid one
-    rest, _, subpath = rest.partition("#")
-    rest, _, query = rest.partition("?")
+    rest, hash_sign, subpath = rest.partition("#")
+    rest, question, query = rest.partition("?")
+    if (hash_sign and not subpath) or (question and not query):
+        return None  # a delimiter with nothing after it is malformed, not "no subpath" or "no qualifiers"
     path, at, version = rest.rpartition("@") if "@" in rest.split("/")[-1] else (rest, "", "")
     raw_segments = path.split("/")
     if len(raw_segments) < 2 or not all(raw_segments):
         return None  # an empty segment (``a//b``) is malformed, not a shorter path
-    segments = [unquote(part) for part in raw_segments]
+    segments = [_unquote(part) for part in raw_segments]
     ptype, name = segments[0].lower(), segments[-1]
     namespace = "/".join(segments[1:-1])
-    qualifiers = sorted((key.lower(), value) for key, value in parse_qsl(query, keep_blank_values=False))
+    qualifiers = _qualifiers(query)
+    if qualifiers is None:
+        return None
     out = f"pkg:{quote(ptype, safe='')}/"
     if namespace:
         out += "/".join(quote(part, safe="") for part in namespace.split("/")) + "/"
     out += quote(name, safe="")
     if at:
-        out += "@" + quote(unquote(version), safe="")
+        out += "@" + quote(_unquote(version), safe="")
     if qualifiers:
         out += "?" + "&".join(f"{quote(key, safe='')}={quote(value, safe='')}" for key, value in qualifiers)
     if subpath:
         # Part of a purl's identity: two purls that differ only in subpath are different, never one target.
-        out += "#" + "/".join(quote(unquote(part), safe="") for part in subpath.split("/") if part)
+        parts = subpath.split("/")
+        if not all(parts) or any(_unquote(part) in (".", "..") for part in parts):
+            return None  # an empty or dot segment is malformed; it is not repaired into a shorter subpath
+        out += "#" + "/".join(quote(_unquote(part), safe="") for part in parts)
     return out
 
 
