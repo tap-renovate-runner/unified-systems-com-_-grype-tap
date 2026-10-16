@@ -44,7 +44,7 @@ Five consequences shape v0:
 
 | RID | Name | Status | Notes |
 | --- | --- | --- | --- |
-| req-grype-binary | [The Pinned Release Binary](#the-pinned-release-binary) | Proposed | Pinned release binary and sha256 placed by an operator step; version gate; honest `[fips]` with its unverifiable caveat |
+| req-grype-binary | [The Pinned Release Binary](#the-pinned-release-binary) | In Development | Pinned release binary and sha256 placed by an operator step; version gate; honest `[fips]` with its unverifiable caveat |
 | req-grype-database | [The Advisory Database](#the-advisory-database) | Proposed | Own daily refresh collector with an operator mirror fallback; scans never fetch; the age rule ends a run `db-stale` or `db-unavailable` |
 | req-grype-collector | [The Whole-Grid Collector](#the-whole-grid-collector) | Proposed | `grype:grype`: per-operating-system SBOMs from computing_core's builder, native JSON, fail closed, per-run scratch |
 | req-grype-trigger | [Own Schedule And Its Guards](#own-schedule-and-its-guards) | Proposed | Seeded daily schedule; skips with no run node while upstream writes; names the upstream jobs it read; the actor and its write permission |
@@ -63,7 +63,7 @@ Five consequences shape v0:
 ----
 RID: `req-grype-binary`
 
-Status: `Proposed`
+Status: `In Development`
 
 Grype is a Go binary published by Anchore as release archives and container images; it is not on PyPI, and the plugin architecture ships no non-Python runtime packaging, so zizmor's pin-by-wheel does not carry over. The first cut pins an exact release binary with a checksum, placed on a persistent volume by an explicit operator step and never fetched during a scan. The collector reads `grype --version` and refuses to scan when it differs from the pin. The manifest `[fips]` table declares the posture honestly (see the implementation note on what verifies it).
 
@@ -83,14 +83,14 @@ The operator step is a stdlib-only script shipped with the plugin (no Django imp
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | :---: | --- | --- |
-| req-grype-binary-1 | Pin Validates | Proposed | `binary.json` validates against its schema, names one version and a `sha256` per supported platform, and the installer refuses any archive whose digest differs. | A tampered-archive test. |
+| req-grype-binary-1 | Pin Validates | Implemented | `binary.json` validates against its schema, names one version and a `sha256` per supported platform, and the installer refuses any archive whose digest differs. | A tampered-archive test. `tests/test_binary.py` `TestPinFile`, `TestInstaller::test_a_digest_mismatch_is_refused_and_writes_nothing`; the schema half of the agreement test runs only where `jsonschema` is importable and is skipped loudly elsewhere. |
 | req-grype-binary-2 | Version Gate | Proposed | A fire whose `grype --version` differs from the pin ends before any SBOM is built, as a failed collection job naming both versions, and writes no run, finding or edge. | The binary that ran is the one that was pinned. |
 | req-grype-binary-3 | Honest FIPS Declaration | Proposed | The manifest carries `[fips]` with `uses-nonvalidated` and a non-empty reason, `validate_plugin --strict` passes, and this spec states that the declaration is unverified by the crypto-BOM check. | |
-| req-grype-binary-4 | Installer Is Idempotent | Proposed | Running the installer twice leaves one binary and a correct link; a failed download leaves the previous binary in place. | |
-| req-grype-binary-5 | Bump Is Checked | Proposed | A change to the pin is accepted only when the archive's digest equals the digest in the release's own published checksums file, checked by a script run at the bump, and the bump records the upstream signing identity where Anchore publishes one. | The check that turns a copied checksum into a verified one. |
-| req-grype-binary-6 | Extraction Is Contained | Proposed | An archive carrying an absolute path, a `..` member, a symlink or hard link that escapes, or a device file is refused even when its digest matches the pin, and nothing is written outside `<home>/bin`. | A malicious-archive fixture. |
+| req-grype-binary-4 | Installer Is Idempotent | Implemented | Running the installer twice leaves one binary and a correct link; a failed download leaves the previous binary in place. | `tests/test_binary.py` `TestInstaller` (idempotent re-run, failed download keeps the previous binary). |
+| req-grype-binary-5 | Bump Is Checked | Proposed | A change to the pin is accepted only when the archive's digest equals the digest in the release's own published checksums file, checked by a script run at the bump, and the bump records the upstream signing identity where Anchore publishes one. | The check that turns a copied checksum into a verified one. Built: the digest-equality half (`pin_tool`, `TestPinTool`). Not built: the upstream signing identity (the release publishes a sigstore bundle; checking it needs cosign), so this stays Proposed. |
+| req-grype-binary-6 | Extraction Is Contained | Implemented | An archive carrying an absolute path, a `..` member, a symlink or hard link that escapes, or a device file is refused even when its digest matches the pin, and nothing is written outside `<home>/bin`. | A malicious-archive fixture. `tests/test_binary.py` `test_a_matching_digest_does_not_excuse_a_dangerous_archive` (7 cases); the real v0.120.1 archive passes the member check. |
 | req-grype-binary-7 | Nothing Executable From The Grid | Proposed | Editing the scanner node's `locator` or `configuration` changes neither which binary runs nor which database or mirror is used. | A test that edits both and re-runs. |
-| req-grype-binary-8 | Pin Is Visible To Renovate | Proposed | A new Grype release produces a Renovate PR that changes only `binary.json`'s `version`; that PR fails the bump check until `scripts/pin-grype <version>` rewrites the checksums from the release's published checksums file, and the script refuses on a mismatch. | Shown with a fixture release. The fleet-preset merge and OSV coverage are named unverified above. |
+| req-grype-binary-8 | Pin Is Visible To Renovate | Proposed | A new Grype release produces a Renovate PR that changes only `binary.json`'s `version`; that PR fails the bump check until `scripts/pin-grype <version>` rewrites the checksums from the release's published checksums file, and the script refuses on a mismatch. | Shown with a fixture release. The fleet-preset merge and OSV coverage are named unverified above. Built: the Renovate manager and a test that it matches `binary.json`. Not shown: a real Renovate PR. |
 
 ### The Advisory Database
 ----

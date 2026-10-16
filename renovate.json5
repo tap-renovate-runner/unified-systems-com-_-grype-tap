@@ -1,0 +1,20 @@
+{
+  // Makes the Grype pin visible to Renovate (req-grype-binary-8). The custom manager reads the
+  // `version` in tap_plugin/grype/binary.json and looks it up as a GitHub release of anchore/grype.
+  // Renovate moves only the version; the per-platform sha256 values are digests it cannot compute,
+  // so the bump PR fails the pin check until `python -m tap_plugin.grype.pin_tool <version> --write`
+  // rewrites them from the release's published checksums. That red PR is the intended state.
+  //
+  // NOT verified: whether the fleet preset's custom managers (boot records, workflow pins) are kept
+  // or replaced when a repository carries its own renovate config; see the spec, req-grype-binary.
+  customManagers: [
+    {
+      customType: "regex",
+      managerFilePatterns: ["/^tap_plugin/grype/binary\\.json$/"],
+      matchStrings: ["\"version\": \"(?<currentValue>v[0-9]+\\.[0-9]+\\.[0-9]+)\""],
+      depNameTemplate: "anchore/grype",
+      datasourceTemplate: "github-releases",
+      versioningTemplate: "semver",
+    },
+  ],
+}
