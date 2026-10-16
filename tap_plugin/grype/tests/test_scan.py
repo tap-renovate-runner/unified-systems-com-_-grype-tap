@@ -59,6 +59,12 @@ class TestPurl(unittest.TestCase):
             "pkg:generic/a@1#x//y",  # an empty subpath segment
             "pkg:generic/a@1#x/../y",  # a dot segment
             "pkg:generic/a@1#/x",
+            "pkg:generic/a@1#x#y",  # a second raw delimiter must not be absorbed by the encoder
+            "pkg:generic/a@1?a=1?b=2",
+            "pkg:generic/a@1@2",
+            "pkg:generic/a@1?a=1#x?y",
+            "pkg:generic/a@",  # an empty version
+            "pkg:generic/a#x@y",  # a version marker after the subpath
             "pkg:generic/a%FF@1",  # an escape that is not valid UTF-8 is not replaced by U+FFFD
             "pkg:generic/a@1#%FF",
             "pkg:generic/a@1?arch=%FF",
@@ -74,6 +80,16 @@ class TestPurl(unittest.TestCase):
             targets.canonical_purl("pkg:generic/a@1?arch=x&empty="), targets.canonical_purl("pkg:generic/a@1?arch=x"),
             "an empty qualifier value carries no information and is left out, as the purl specification says",
         )
+
+    def test_a_raw_delimiter_is_not_the_same_purl_as_its_encoded_spelling(self) -> None:
+        for raw, encoded in (
+            ("pkg:generic/a@1#x#y", "pkg:generic/a@1#x%23y"),
+            ("pkg:generic/a@1?a=1?b=2", "pkg:generic/a@1?a=1%3Fb=2"),
+            ("pkg:generic/a@1@2", "pkg:generic/a@1%402"),
+        ):
+            with self.subTest(raw):
+                self.assertIsNotNone(targets.canonical_purl(encoded), "the encoded spelling is a valid purl")
+                self.assertIsNone(targets.canonical_purl(raw))
 
     def test_a_string_that_cannot_be_encoded_is_refused_not_raised(self) -> None:
         for purl in ("pkg:generic/a" + chr(0xD800) + "@1", "pkg:generic/a@1#" + chr(0xDC00), "pkg:generic/a@1?k=" + chr(0xD800)):

@@ -18,6 +18,13 @@ from urllib.parse import quote, unquote
 from tap_plugin.grype.output import Match
 
 _BAD_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
+#: The purl delimiter grammar, checked on the RAW string before anything is decoded or re-encoded:
+#: ``pkg:type/namespace/name@version?qualifiers#subpath``. ``@``, ``?`` and ``#`` are structural, so each may appear
+#: at most once, in that order, and never inside a part (inside a part they must arrive percent-encoded). Checking
+#: this first means a repeated or misplaced delimiter cannot be absorbed by the encoder and made to equal a valid purl.
+_PURL_GRAMMAR = re.compile(
+    r"pkg:[A-Za-z][A-Za-z0-9.+-]*/[^/?#@]+(?:/[^/?#@]+)*(?:@[^/?#@]+)?(?:\?[^?#]*)?(?:#[^?#@]*)?"
+)
 _QUALIFIER_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9._-]*$")
 
 NO_TARGET = "no-target"
@@ -82,8 +89,8 @@ def _canonical_purl(purl: str) -> str | None:
     never equal another by accident. Grype regenerates purls, so the same package arrives spelled differently
     (qualifier order, percent-encoding); both sides go through this one function.
     """
-    if not purl.startswith("pkg:") or _BAD_ESCAPE.search(purl):
-        return None  # an invalid percent escape is malformed, never read as a literal that could equal a valid one
+    if not _PURL_GRAMMAR.fullmatch(purl) or _BAD_ESCAPE.search(purl):
+        return None  # a misplaced delimiter or an invalid percent escape is malformed, never repaired into a valid purl
     rest = purl[4:]
     if rest.startswith("/"):
         return None  # a leading slash is not part of a purl; never normalised away into a valid one
