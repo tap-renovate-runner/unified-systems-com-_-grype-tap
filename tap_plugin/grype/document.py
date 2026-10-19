@@ -194,8 +194,11 @@ def build_document(plan: planning.Plan, ctx: Context, *, batch_name: str | None 
     }
     if plan.delete_edges:
         batch["deletes"] = {
-            "on_missing": "warn",
-            "on_tombstoned": "warn",
+            # An edge this run means to replace that is already gone means another run planned from the same
+            # snapshot and replaced it first: refuse the whole batch (it is atomic) so the collector re-reads and
+            # re-plans, rather than adding a second "latest" edge beside the first run's.
+            "on_missing": "error",
+            "on_tombstoned": "error",
             "edges": [{"entity_id": edge_id, "entity_type": "edge", "reason": "replaced by a later Grype run"} for edge_id in plan.delete_edges],
             "nodes": [],
         }

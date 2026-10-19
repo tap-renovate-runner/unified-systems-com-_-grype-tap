@@ -147,7 +147,7 @@ class TestSecondRunDocument(unittest.TestCase):
         plan_ = run(self.grid, one_document(self.doc, self.grid), findings=self.findings, vulnerabilities=self.vulns, coverage={g.target.id: f"cov-{g.target.id}" for g in self.grid})
         batch = self.second(plan_, context())
         deletes = batch["deletes"]
-        self.assertEqual((deletes["on_missing"], deletes["nodes"]), ("warn", []))
+        self.assertEqual((deletes["on_missing"], deletes["on_tombstoned"], deletes["nodes"]), ("error", "error", []))  # a stale snapshot is refused
         self.assertEqual({d["entity_id"] for d in deletes["edges"]}, {f.reporting_edge_id for f in self.findings} | {f"cov-{g.target.id}" for g in self.grid})
         self.assertEqual({d["entity_type"] for d in deletes["edges"]}, {"edge"})
         self.assertTrue(all(d["reason"] for d in deletes["edges"]))
