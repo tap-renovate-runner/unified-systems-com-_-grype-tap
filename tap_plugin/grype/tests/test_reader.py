@@ -144,6 +144,10 @@ class TestEndToEnd:
         return reader.read_targets()
 
     def run_once(self, run_key: str) -> tuple[plan.Plan, Any]:
+        the_plan, built = self.prepare(run_key)
+        return the_plan, grift_import(built)
+
+    def prepare(self, run_key: str) -> tuple[plan.Plan, dict[str, Any]]:
         rows = self.targets()
         grid_targets = [gt for gt, _ in rows]
         result = plan.DocumentResult("doc-0", tuple(gt.target.id for gt in grid_targets), self.doc)
@@ -158,7 +162,7 @@ class TestEndToEnd:
             tool_version=VERSION,
         )
         ctx = document.Context(scanner_id=str(self.scanner.id), field_names=reader.field_names(), existing_nodes=reader.read_nodes(the_plan))
-        return the_plan, grift_import(document.build_document(the_plan, ctx))
+        return the_plan, document.build_document(the_plan, ctx)
 
     def vuln(self, vuln_id: str) -> Any:
         return get_model_class(document.VULNERABILITY).objects.get(vuln_id=vuln_id)
@@ -203,6 +207,22 @@ class TestEndToEnd:
             coverage = Edge.objects.filter(edge_type=document.SCANNED, to_entity_id=package_entity.id)
             assert coverage.count() == 1  # exactly one coverage edge per target
             assert coverage.get().properties == {"outcome": "scanned"}
+
+    def test_two_runs_planned_from_the_same_snapshot_do_not_leave_two_current_edges_per_pair(self) -> None:
+        self.run_once("run-1")
+        _, first = self.prepare("run-a")
+        _, second = self.prepare("run-b")  # planned before run-a was written, so it deletes the same old edges
+        assert not grift_import(first).errors
+        refused = grift_import(second)
+        assert refused.errors, "the second run's deletes name edges the first run already replaced"
+        runs = {r.run_key for r in get_model_class(document.RUN).objects.filter(source="grype")}
+        assert runs == {"run-1", "run-a"}  # run-b wrote nothing
+        for finding in get_model_class(document.FINDING).objects.filter(source="grype"):
+            assert Edge.objects.filter(edge_type=document.REPORTS, to_entity_id=finding.entity_id).count() == 1
+        for package_entity in self.packages.values():
+            assert Edge.objects.filter(edge_type=document.SCANNED, to_entity_id=package_entity.id).count() == 1
+        _, again = self.run_once("run-b2")  # a fresh read and plan, as the collector does after a refusal, succeeds
+        assert not again.errors
 
     def test_a_writer_that_changed_the_node_between_the_read_and_the_submit_is_detected_and_nothing_lands(self) -> None:
         rows = self.targets()
