@@ -32,13 +32,16 @@ def _remove_tree(path: Path) -> None:
     """Remove ``path``; a directory that is already gone is fine, but only if it is truly gone.
 
     ``FileNotFoundError`` can also come from inside the walk while the directory still exists, so it is
-    forgiven only when nothing is left at ``path``; otherwise it is raised and reported like any other failure.
+    forgiven only when ``lstat`` of ``path`` itself says it is absent; any other outcome, an ``lstat`` error included, it is raised and reported like any other failure.
     """
     try:
         shutil.rmtree(path)
     except FileNotFoundError:
-        if os.path.lexists(path):
-            raise
+        try:
+            os.lstat(path)
+        except FileNotFoundError:
+            return  # truly gone
+        raise  # still there (or not checkable: ``lstat``'s own error is raised instead)
 
 
 @contextmanager

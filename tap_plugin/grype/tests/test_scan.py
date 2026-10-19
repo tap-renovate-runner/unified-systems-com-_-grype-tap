@@ -215,6 +215,15 @@ class TestScratch(unittest.TestCase):
                 raise RuntimeError("the run failed")
         self.assertTrue(any("was not removed" in note for note in caught.exception.__notes__))
 
+    def test_a_directory_that_cannot_be_checked_is_not_treated_as_removed(self) -> None:
+        with (
+            mock.patch.object(scan.shutil, "rmtree", side_effect=FileNotFoundError("a child vanished mid-walk")),
+            mock.patch.object(scan.os, "lstat", side_effect=PermissionError("cannot stat")),
+            self.assertRaises(scan.ScanError),
+            scan.scratch_dir(self.home, "run-00000014"),
+        ):
+            pass
+
     def test_a_cleanup_failure_is_reported_never_swallowed(self) -> None:
         original = scan.shutil.rmtree
 
