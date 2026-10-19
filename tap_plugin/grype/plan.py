@@ -270,14 +270,12 @@ def _resolve_vulnerabilities(
     for key, fact in sorted(facts.items()):
         names = (key, *fact.aliases)
         found = {node_id for name in names for node_id in index.get(name, ())}
-        exact = {node_id for node_id in index.get(key, ()) if by_id[node_id].vuln_id == key}
-        chosen = exact if len(exact) == 1 else found
-        if len(chosen) > 1:
+        if len(found) > 1:  # however it came to be, two nodes for one vulnerability is not for this plugin to settle
             refs[key] = None
             continue
         desired = _desired_vulnerability_fields(fact, data_version)
-        if chosen:
-            node = by_id[next(iter(chosen))]
+        if found:
+            node = by_id[next(iter(found))]
             refs[key] = Ref.existing(node.node_id)
             patch = _patch_for(fact, desired, node)
             if patch:

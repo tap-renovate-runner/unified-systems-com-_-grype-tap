@@ -344,6 +344,13 @@ class TestVulnerabilityPatch(unittest.TestCase):
         self.assertNotIn("f-old", [p.node_id for p in result.patch_findings])  # and not a resolve
         self.assertEqual(result.run["outcome"], "partial")
 
+    def test_an_exact_id_node_does_not_hide_a_second_node_that_claims_the_same_vulnerability(self) -> None:
+        canonical = plan.ExistingVulnerability("v-cve", 1, "CVE-2021-45105", (), {})
+        claimant = plan.ExistingVulnerability("v-dup", 1, "GHSA-elsewhere", ("CVE-2021-45105",), {})
+        result = self.planned([canonical, claimant])
+        self.assertEqual([p for p in result.patch_vulnerabilities if p.node_id in ("v-cve", "v-dup")], [])
+        self.assertIn(("failed", "vulnerability-ambiguous"), {(c.outcome, c.reason) for c in result.coverage})
+
     def test_a_kev_detail_the_catalog_did_not_give_is_left_alone_not_blanked(self) -> None:
         bare = tuple(
             dataclasses.replace(m, kev=tuple(dataclasses.replace(k, required_action=None) for k in m.kev)) for m in self.doc.matches
