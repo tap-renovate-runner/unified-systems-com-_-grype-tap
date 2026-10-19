@@ -232,6 +232,29 @@ class TestEndToEnd:
         _, again = self.run_once("run-b2")  # a fresh read and plan, as the collector does after a refusal, succeeds
         assert not again.errors
 
+    def test_a_node_that_moved_between_planning_and_reading_it_whole_is_refused_before_anything_is_sent(self) -> None:
+        rows = self.targets()
+        grid_targets = [gt for gt, _ in rows]
+        vulnerabilities = reader.read_existing_vulnerabilities()
+        the_plan = plan.plan_scan(
+            targets=grid_targets,
+            results=[plan.DocumentResult("doc-0", tuple(gt.target.id for gt in grid_targets), self.doc)],
+            existing_findings=[], existing_vulnerabilities=vulnerabilities, existing_coverage={},
+            run_key="run-moved", observed_at=NOW, tool_version=VERSION,
+        )
+        assert the_plan.patch_vulnerabilities, "the plan must patch the shared vulnerability for this to mean anything"
+        changed = patch_node(self.theirs.id, {"cvss_score": 9.0})  # after the plan was made, before the node is read whole
+        assert changed.success, changed.errors
+        ctx = document.Context(
+            scanner_id=str(self.scanner.id),
+            field_names=reader.field_names(),
+            known_ids=reader.known_ids(grid_targets, [], vulnerabilities),
+            known_edge_ids=frozenset(),
+            existing_nodes=reader.read_nodes(the_plan),  # reads the NEWER version
+        )
+        with pytest.raises(document.DocumentError):
+            document.build_document(the_plan, ctx)  # the plan was made at the older one
+
     def test_a_writer_that_changed_the_node_between_the_read_and_the_submit_is_detected_and_nothing_lands(self) -> None:
         rows = self.targets()
         grid_targets = [gt for gt, _ in rows]
