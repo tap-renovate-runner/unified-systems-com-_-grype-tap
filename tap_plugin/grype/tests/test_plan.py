@@ -253,6 +253,73 @@ class TestResolveOnlyWhatWasScanned(unittest.TestCase):
         self.assertEqual(len(partial.unmapped), len(self.doc.matches))
         self.assertEqual({u.reason for u in partial.unmapped}, {targets.NO_TARGET})
         self.assertEqual(partial.mint_findings, [])
+        self.assertEqual([(c.outcome, c.reason) for c in partial.coverage], [("not-scanned", "unmapped")])
+
+    def test_a_document_with_an_unmapped_match_resolves_nothing_for_any_target_in_it(self) -> None:
+        extra = plan.GridTarget(targets.Target("lonely", "library", "lonely", "1", None, "pkg:generic/lonely@1"), "computing_core__library", ("lonely", "1"))
+        stale = plan.ExistingFinding('["CVE-0000-0003","computing_core__library","lonely","1"]', "f-lonely", "lonely", plan.OPEN, "x", None)
+        # One document, several targets, one match that maps to none of them: no target in it can be said to have lost a finding.
+        stray = dataclasses.replace(self.doc.matches[0], artifact=dataclasses.replace(self.doc.matches[0].artifact, purl="pkg:maven/not/in-the-grid@9", name="in-the-grid", version="9"))
+        doc = dataclasses.replace(self.doc, matches=(*self.doc.matches, stray))
+        ids = tuple(g.target.id for g in self.grid)
+        result = run([*self.grid, extra], [plan.DocumentResult("doc-0", (*ids, "lonely"), doc)], findings=[*self.findings, stale], vulnerabilities=self.vulns)
+        self.assertEqual({(c.outcome, c.reason) for c in result.coverage}, {("not-scanned", "unmapped")})
+        self.assertEqual([p for p in result.patch_findings if p.fields.get("status") == "resolved"], [])
+        self.assertEqual({r.finding for r in result.reports}, {plan.Ref.existing(f.node_id) for f in self.findings})  # what did map still counts
+        self.assertEqual(result.run["outcome"], "partial")
+        self.assertEqual(len(result.unmapped), 1)
+
+    def test_matches_from_a_document_that_carries_no_target_are_unmapped_and_the_run_is_partial(self) -> None:
+        ids = tuple(g.target.id for g in self.grid)
+        result = run(self.grid, [plan.DocumentResult("doc-0", ids, self.doc), plan.DocumentResult("orphan", (), self.doc)])
+        self.assertEqual({(c.outcome, c.reason) for c in result.coverage}, {("scanned", None)})
+        self.assertEqual(len(result.unmapped), len(self.doc.matches))
+        self.assertEqual(result.run["outcome"], "partial")
+
+    def test_a_failed_document_outranks_an_unmapped_match_as_the_reason(self) -> None:
+        stray = dataclasses.replace(self.doc.matches[0], artifact=dataclasses.replace(self.doc.matches[0].artifact, purl="pkg:maven/not/in-the-grid@9", name="in-the-grid", version="9"))
+        doc = dataclasses.replace(self.doc, matches=(*self.doc.matches, stray))
+        ids = tuple(g.target.id for g in self.grid)
+        result = run(self.grid, [plan.DocumentResult("a", ids, doc), plan.DocumentResult("b", ids, None)])
+        self.assertEqual({(c.outcome, c.reason) for c in result.coverage}, {("not-scanned", "document-failed")})
+
+
+class TestAFindingKeepsItsKey(unittest.TestCase):
+    """The same finding must stay the same node when a database build later gives its advisory a CVE."""
+
+    def setUp(self) -> None:
+        self.full = parsed(recordings.LOG4J)
+        self.grid = grid_targets(self.full)
+        # The first sighting: Grype named only the GHSA, with no CVE in relatedVulnerabilities.
+        self.ghsa_only = dataclasses.replace(self.full, matches=tuple(dataclasses.replace(m, related_ids=()) for m in self.full.matches))
+
+    def test_a_cve_attached_later_does_not_turn_the_finding_into_a_new_one(self) -> None:
+        first = run(self.grid, one_document(self.ghsa_only, self.grid))
+        findings, vulns = as_existing(first, self.grid)
+        self.assertTrue(all(json.loads(f.key)[0].startswith("GHSA-") for f in findings))
+        again = run(self.grid, one_document(self.full, self.grid), findings=findings, vulnerabilities=vulns)
+        self.assertEqual((again.mint_findings, again.mint_vulnerabilities), ([], []))
+        self.assertEqual([p for p in again.patch_findings if p.fields.get("status") == "resolved"], [])
+        self.assertEqual({r.finding for r in again.reports}, {plan.Ref.existing(f.node_id) for f in findings})
+        added = {a for p in again.patch_vulnerabilities for a in p.fields.get("aliases", [])}
+        self.assertIn("CVE-2021-44228", added)  # the CVE becomes an alias of the node that already exists
+
+    def test_a_new_finding_on_a_reused_node_is_keyed_by_the_nodes_own_id(self) -> None:
+        theirs = plan.ExistingVulnerability("v-ghsa", 1, "GHSA-jfh8-c2jp-5v3q", (), {})
+        result = run(self.grid, one_document(self.full, self.grid), vulnerabilities=[theirs])
+        keys = [json.loads(f.key)[0] for f in result.mint_findings if f.vulnerability == plan.Ref.existing("v-ghsa")]
+        self.assertEqual(keys, ["GHSA-jfh8-c2jp-5v3q"])
+
+    def test_a_finding_minted_under_the_cve_is_still_found_after_the_node_turns_out_to_be_keyed_by_the_ghsa(self) -> None:
+        first = run(self.grid, one_document(self.full, self.grid))
+        findings, _ = as_existing(first, self.grid)
+        theirs = plan.ExistingVulnerability("v-ghsa", 1, "GHSA-jfh8-c2jp-5v3q", ("CVE-2021-44228",), {})
+        again = run(self.grid, one_document(self.full, self.grid), findings=findings, vulnerabilities=[theirs])
+        old_keys = {json.loads(f.key)[0]: f for f in findings}
+        self.assertIn("CVE-2021-44228", old_keys)
+        minted = {json.loads(f.key)[0] for f in again.mint_findings}
+        self.assertNotIn("CVE-2021-44228", minted)  # not minted a second time under another spelling
+        self.assertEqual([p for p in again.patch_findings if p.fields.get("status") == "resolved" and p.node_id == old_keys["CVE-2021-44228"].node_id], [])
 
 
 class TestFindingKeys(unittest.TestCase):

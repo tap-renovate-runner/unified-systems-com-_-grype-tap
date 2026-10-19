@@ -12,6 +12,12 @@ The rules, in the order the plan applies them:
 * A finding's key is a JSON array of the vulnerability id, the target's entity type and each field of its natural
   key, so no two tuples can share a key. A key over 512 characters is refused, never truncated, and the target it
   belongs to is recorded ``failed`` (``finding-key-too-long``) rather than half tracked.
+* A document with a match that maps to no single target makes every target in it ``not-scanned`` (``unmapped``): the
+  match may belong to one of them, so none of them can be said to have lost a finding. Findings are still created
+  and reopened from the matches that did map.
+* A finding keeps the key it was minted with. When a vulnerability node already exists the key uses that node's
+  ``vuln_id``, which never changes, so a CVE that Grype's database later attaches to a GHSA-only advisory does not
+  turn the same finding into a new one.
 * An existing finding of a ``scanned`` target that no longer matches is resolved; a resolved one that matches again is
   reopened; matches from parsed documents create or reopen findings even for a not-scanned target.
 * A vulnerability is found under any of its ids (as ``vuln_id`` or as an alias) before one is minted. Two different
@@ -43,6 +49,7 @@ SCANNED = "scanned"
 NOT_SCANNED = "not-scanned"
 FAILED = "failed"
 DOCUMENT_FAILED = "document-failed"
+UNMAPPED = "unmapped"
 KEY_TOO_LONG = "finding-key-too-long"
 VULNERABILITY_AMBIGUOUS = "vulnerability-ambiguous"
 
@@ -256,8 +263,9 @@ def _resolve_vulnerabilities(
     facts: Mapping[str, VulnerabilityFacts],
     existing: Sequence[ExistingVulnerability],
     data_version: str | None,
-) -> tuple[dict[str, Ref | None], list[MintVulnerability], list[PatchVulnerability]]:
-    """For each vulnerability key, the node it is (``None``: ambiguous, refused), and the writes that follow."""
+) -> tuple[dict[str, Ref | None], dict[str, str], list[MintVulnerability], list[PatchVulnerability]]:
+    """For each vulnerability key, the node it is (``None``: ambiguous, refused), the id its findings are keyed
+    under (the node's own ``vuln_id``), and the writes that follow."""
     index: dict[str, set[str]] = defaultdict(set)
     by_id: dict[str, ExistingVulnerability] = {}
     for node in existing:
@@ -265,6 +273,7 @@ def _resolve_vulnerabilities(
         for name in (node.vuln_id, *node.aliases):
             index[name].add(node.node_id)
     refs: dict[str, Ref | None] = {}
+    canonical: dict[str, str] = {}
     mints: list[MintVulnerability] = []
     patches: list[PatchVulnerability] = []
     for key, fact in sorted(facts.items()):
@@ -277,13 +286,15 @@ def _resolve_vulnerabilities(
         if found:
             node = by_id[next(iter(found))]
             refs[key] = Ref.existing(node.node_id)
+            canonical[key] = node.vuln_id
             patch = _patch_for(fact, desired, node)
             if patch:
                 patches.append(PatchVulnerability(node.node_id, node.version, patch))
         else:
             refs[key] = Ref.new(key)
+            canonical[key] = key
             mints.append(MintVulnerability(key, {"vuln_id": key, "aliases": list(fact.aliases), **desired}))
-    return refs, mints, patches
+    return refs, canonical, mints, patches
 
 
 def plan_unscanned(*, outcome: str, run_key: str, observed_at: datetime, tool_version: str) -> Plan:
@@ -339,11 +350,12 @@ def plan_scan(
     db = combined.db if combined else None
     data_version = db.data_version if db else None
     facts = vulnerability_facts(combined) if combined else {}
-    refs, mint_vulns, patch_vulns = _resolve_vulnerabilities(facts, existing_vulnerabilities, data_version)
+    refs, canonical, mint_vulns, patch_vulns = _resolve_vulnerabilities(facts, existing_vulnerabilities, data_version)
 
     # Matches per target, from the documents that parsed.
     per_target: dict[str, list[Match]] = defaultdict(list)
     unmapped: list[Unmapped] = []
+    has_unmapped: set[str] = set()
     for result in results:
         if result.document is None:
             continue
@@ -351,12 +363,17 @@ def plan_scan(
         for target_id, matches in mapping.mapped.items():
             per_target[target_id].extend(matches)
         for match, reason in mapping.unmapped:
+            has_unmapped.add(result.label)
             unmapped.append(Unmapped(vuln_key(match)[0], match.artifact.purl, reason))
 
     outcomes: dict[str, tuple[str, str | None]] = {}
     for target_id in grid:
-        ok = all(r.document is not None for r in documents[target_id])
-        outcomes[target_id] = (SCANNED, None) if ok else (NOT_SCANNED, DOCUMENT_FAILED)
+        if any(r.document is None for r in documents[target_id]):
+            outcomes[target_id] = (NOT_SCANNED, DOCUMENT_FAILED)
+        elif any(r.label in has_unmapped for r in documents[target_id]):
+            outcomes[target_id] = (NOT_SCANNED, UNMAPPED)
+        else:
+            outcomes[target_id] = (SCANNED, None)
 
     existing_by_target: dict[str, dict[str, ExistingFinding]] = defaultdict(dict)
     for finding in existing_findings:
@@ -378,7 +395,7 @@ def plan_scan(
                 blocked = VULNERABILITY_AMBIGUOUS
                 break
             try:
-                key = finding_key(fact.key, gt)
+                key = finding_key(canonical[fact.key], gt)
             except PlanError:
                 blocked = KEY_TOO_LONG
                 break
@@ -390,6 +407,17 @@ def plan_scan(
             matched.add(key)
             summary = _clip(f"Grype severity {fact.severity}; fix {fact.fix_state}", SUMMARY_LIMIT)
             current = existing_by_target[target_id].get(key)
+            if current is None:
+                # A finding minted before the node existed, or under another of the vulnerability's ids, is the same finding.
+                for other in (fact.key, *facts[fact.key].aliases):
+                    try:
+                        older = finding_key(other, gt)
+                    except PlanError:
+                        continue
+                    if older in existing_by_target[target_id]:
+                        key, current = older, existing_by_target[target_id][older]
+                        matched.add(older)
+                        break
             if current is None:
                 name = _clip(f"{fact.key} in {gt.target.name} {gt.target.version}", NAME_LIMIT)
                 mint_findings.append(MintFinding(key, target_id, ref, name, summary, fact.fixed_versions))
