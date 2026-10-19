@@ -28,13 +28,29 @@ class ScanError(RuntimeError):
     """A document could not be scanned or its output could not be trusted."""
 
 
+def _remove_tree(path: Path) -> None:
+    """Remove ``path``; a directory that is already gone is fine, but only if it is truly gone.
+
+    ``FileNotFoundError`` can also come from inside the walk while the directory still exists, so it is
+    forgiven only when ``lstat`` of ``path`` itself says it is absent; any other outcome, an ``lstat`` error included, it is raised and reported like any other failure.
+    """
+    try:
+        shutil.rmtree(path)
+    except FileNotFoundError:
+        try:
+            os.lstat(path)
+        except FileNotFoundError:
+            return  # truly gone
+        raise  # still there (or not checkable: ``lstat``'s own error is raised instead)
+
+
 @contextmanager
 def scratch_dir(home: Path, run_id: str) -> Iterator[Path]:
     """``<home>/scratch/<run_id>/``: per run, mode 0700, never fixed or cwd-relative, removed on exit.
 
     The run id is checked against a plain pattern, so it cannot name another directory. Two concurrent runs
     have different ids and so never share a path; the directory is removed whether the run ended or failed, and
-    a removal that fails is reported (as a ``ScanError``, or as a note on the error already in flight).
+    a removal that fails is reported (as a ``ScanError``, or as a note on the error already in flight); a directory already removed is not a failure.
     """
     if not _RUN_ID.match(run_id):
         raise ScanError(f"run id {run_id!r} is not a plain identifier")
@@ -47,13 +63,13 @@ def scratch_dir(home: Path, run_id: str) -> Iterator[Path]:
     except BaseException as error:
         # An error is already in flight: tidy up as well as possible, say so if that failed, and never mask it.
         try:
-            shutil.rmtree(path)
+            _remove_tree(path)
         except OSError as cleanup:
             error.add_note(f"the scratch directory {path} was not removed: {cleanup}")
         raise
     else:
         try:
-            shutil.rmtree(path)
+            _remove_tree(path)
         except OSError as cleanup:
             raise ScanError(f"the scratch directory {path} was not removed: {cleanup}") from cleanup
 
