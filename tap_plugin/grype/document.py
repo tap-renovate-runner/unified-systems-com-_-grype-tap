@@ -116,6 +116,9 @@ def _overlay(
     missing = sorted(expected - set(existing.properties))
     if missing:
         raise DocumentError(f"node {node_id!r} was read without {missing}; sending it would blank them")
+    undeclared = sorted(set(existing.properties) - expected)
+    if undeclared:
+        raise DocumentError(f"node {node_id!r} was read with {undeclared}, which its type does not declare; they would be written back")
     return existing, {**existing.properties, **fields}
 
 

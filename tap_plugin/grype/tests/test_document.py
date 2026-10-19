@@ -215,6 +215,11 @@ class TestGuardsOnWhatIsSentWhole(unittest.TestCase):
         with self.assertRaises(document.DocumentError):
             document.build_document(self.resolving, context(existing_nodes={"f-gone": thin}))
 
+    def test_a_node_read_with_a_field_its_type_does_not_declare_is_refused_not_written_back(self) -> None:
+        extra = dataclasses.replace(self.read, properties={**self.read.properties, "unexpected_field": "value"})
+        with self.assertRaises(document.DocumentError):
+            document.build_document(self.resolving, context(existing_nodes={"f-gone": extra}))
+
     def test_a_plan_that_patches_a_field_this_plugin_does_not_own_is_refused(self) -> None:
         foreign = dataclasses.replace(self.resolving, patch_findings=[plan.PatchFinding("f-gone", {"status": "resolved", "description": "mine now"}, 3)])
         with self.assertRaises(document.DocumentError):
@@ -254,9 +259,24 @@ class TestAgainstTheGriftSchema(unittest.TestCase):
         first = run(grid, one_document(doc, grid))
         findings, vulns = as_existing(first, grid)
         second = run(grid, one_document(doc, grid), findings=findings, vulnerabilities=vulns, coverage={g.target.id: f"00000000-0000-7000-8000-{n:012d}" for n, g in enumerate(grid, 100)})
-        for label, plan_ in (("first run", first), ("second run", second), ("nothing scanned", plan.plan_unscanned(outcome="db-stale", run_key="k", observed_at=NOW, tool_version="0.120.1"))):
+        # A run that patches existing nodes whole: a vulnerability another source wrote, and a finding that stopped matching.
+        theirs = plan.ExistingVulnerability("00000000-0000-7000-8000-0000000000b1", 4, "CVE-2021-44228", ("GHSA-jfh8-c2jp-5v3q",), {"kev": False})
+        gone = plan.ExistingFinding('["CVE-0000-0001","computing_core__library","x","1"]', "00000000-0000-7000-8000-0000000000b2", grid[0].target.id, plan.OPEN, "x", None, 2)
+        patching = run(grid, one_document(doc, grid), findings=[*findings, gone], vulnerabilities=[theirs])
+        nodes = {
+            theirs.node_id: document.ExistingNode(4, whole(VULN_FIELDS, {"vuln_id": "CVE-2021-44228", "aliases": ["GHSA-jfh8-c2jp-5v3q"], "cvss_score": 10.0, "kev": False}), {"compliance": "vulnerability"}, "CVE-2021-44228"),
+            gone.node_id: document.ExistingNode(2, whole(FINDING_FIELDS, {"source": "grype", "source_key": gone.key, "name": "n", "summary": "x", "status": "open"}), {"compliance": "finding"}, "n"),
+        }
+        scanner = "00000000-0000-7000-8000-0000000000aa"
+        cases = (
+            ("first run", first, {}),
+            ("second run", second, {}),
+            ("a run that patches existing nodes", patching, nodes),
+            ("nothing scanned", plan.plan_unscanned(outcome="db-stale", run_key="k", observed_at=NOW, tool_version="0.120.1"), {}),
+        )
+        for label, plan_, existing in cases:
             with self.subTest(label):
-                out = document.build_document(plan_, document.Context(scanner_id="00000000-0000-7000-8000-0000000000aa", field_names=FIELDS, new_id=counter(), now=lambda: NOW))
+                out = document.build_document(plan_, document.Context(scanner_id=scanner, field_names=FIELDS, existing_nodes=existing, new_id=counter(), now=lambda: NOW))
                 jsonschema.validate(out, schema)
 
 
