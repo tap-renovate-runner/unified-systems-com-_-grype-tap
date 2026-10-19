@@ -36,6 +36,18 @@ REPORTS = "REPORTS_COMPLIANCE_FINDING__compliance_core"
 CARRIES = "CARRIES_COMPLIANCE_FINDING__compliance_core"
 CONCERNS = "CONCERNS_COMPLIANCE_VULNERABILITY__compliance_core"
 
+#: The only fields this plugin writes on a node it did not create, by type. A patch naming anything else is refused: the
+#: rest of a shared node belongs to other writers and travels through unchanged.
+OWNED_FIELDS: Mapping[str, frozenset[str]] = {
+    VULNERABILITY: frozenset(
+        {
+            "aliases", "description", "record_url", "kev", "kev_added", "kev_due_date", "kev_required_action",
+            "kev_ransomware_use", "kev_catalog_version", "epss_score", "epss_percentile", "epss_date",
+        }
+    ),
+    FINDING: frozenset({"status", "summary"}),
+}
+
 _NODE_DIMENSIONS = {FINDING: {"compliance": "finding"}, RUN: {"compliance": "scan-run"}, VULNERABILITY: {"compliance": "vulnerability"}}
 _EDGE_DIMENSIONS = {
     PERFORMS: {"compliance": "scan-run"},
@@ -63,6 +75,9 @@ class ExistingNode:
 @dataclass(frozen=True)
 class Context:
     scanner_id: str
+    #: Every field of each node type this plugin updates, as the model declares them (the reader takes them from the
+    #: model). A node read without all of them would be sent back thin and blank what it lacks, so it is refused.
+    field_names: Mapping[str, frozenset[str]]
     #: The nodes the plan patches, by id. A patch of a node not in here is refused, never sent blind.
     existing_nodes: Mapping[str, ExistingNode] = field(default_factory=dict)
     new_id: Callable[[], str] = lambda: str(uuid7())
@@ -84,10 +99,23 @@ def _edge(entity_id: str, edge_type: str, source: str, target: str, properties: 
     }
 
 
-def _overlay(ctx: Context, node_id: str, fields: Mapping[str, Any]) -> tuple[ExistingNode, dict[str, Any]]:
+def _overlay(
+    ctx: Context, node_id: str, entity_type: str, fields: Mapping[str, Any], planned_version: int
+) -> tuple[ExistingNode, dict[str, Any]]:
     existing = ctx.existing_nodes.get(node_id)
     if existing is None:
         raise DocumentError(f"the plan patches node {node_id!r}, which was not read; it will not be sent from memory")
+    if existing.version != planned_version:
+        raise DocumentError(f"node {node_id!r} was planned at version {planned_version} but read at {existing.version}")
+    foreign = sorted(set(fields) - OWNED_FIELDS[entity_type])
+    if foreign:
+        raise DocumentError(f"the plan patches {foreign} on {node_id!r}, which are not fields this plugin owns")
+    expected = ctx.field_names.get(entity_type)
+    if expected is None:
+        raise DocumentError(f"the fields of {entity_type} were not given, so a whole node cannot be checked before it is sent")
+    missing = sorted(expected - set(existing.properties))
+    if missing:
+        raise DocumentError(f"node {node_id!r} was read without {missing}; sending it would blank them")
     return existing, {**existing.properties, **fields}
 
 
@@ -112,9 +140,7 @@ def build_document(plan: planning.Plan, ctx: Context, *, batch_name: str | None 
     for mint in plan.mint_vulnerabilities:
         nodes.append(_node(minted("vulnerability", mint.key), VULNERABILITY, mint.key, _NODE_DIMENSIONS[VULNERABILITY], mint.fields))
     for patch in plan.patch_vulnerabilities:
-        existing, fields = _overlay(ctx, patch.node_id, patch.fields)
-        if existing.version != patch.expected_version:
-            raise DocumentError(f"vulnerability {patch.node_id!r} was planned at version {patch.expected_version} but read at {existing.version}")
+        existing, fields = _overlay(ctx, patch.node_id, VULNERABILITY, patch.fields, patch.expected_version)
         nodes.append(_node(patch.node_id, VULNERABILITY, existing.name, existing.dimensions, fields, existing.version))
 
     for finding in plan.mint_findings:
@@ -125,7 +151,7 @@ def build_document(plan: planning.Plan, ctx: Context, *, batch_name: str | None 
         edges.append(_edge(ctx.new_id(), CONCERNS, finding_id, resolve("vulnerability", finding.vulnerability), props))
         edges.append(_edge(ctx.new_id(), CARRIES, finding.target_id, finding_id))
     for patch in plan.patch_findings:
-        existing, fields = _overlay(ctx, patch.node_id, patch.fields)
+        existing, fields = _overlay(ctx, patch.node_id, FINDING, patch.fields, patch.expected_version)
         nodes.append(_node(patch.node_id, FINDING, existing.name, existing.dimensions, fields, existing.version))
 
     for report in plan.reports:

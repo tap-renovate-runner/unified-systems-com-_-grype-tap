@@ -107,6 +107,7 @@ class ExistingFinding:
     status: str
     summary: str
     reporting_edge_id: str | None
+    version: int = 1  # the entity version this row was read at; a patch is only valid against it
 
 
 @dataclass(frozen=True)
@@ -147,6 +148,7 @@ class MintFinding:
 class PatchFinding:
     node_id: str
     fields: dict[str, Any]
+    expected_version: int = 1
 
 
 @dataclass(frozen=True)
@@ -450,14 +452,14 @@ def plan_scan(
             if current.summary != summary:
                 patch["summary"] = summary
             if patch:
-                patch_findings.append(PatchFinding(current.node_id, patch))
+                patch_findings.append(PatchFinding(current.node_id, patch, current.version))
             reports.append(Report(Ref.existing(current.node_id)))
             if current.reporting_edge_id:
                 delete_edges.append(current.reporting_edge_id)
         if outcomes[target_id][0] == SCANNED:
             for key, current in sorted(existing_by_target[target_id].items()):
                 if key not in matched and current.status == OPEN:
-                    patch_findings.append(PatchFinding(current.node_id, {"status": RESOLVED}))
+                    patch_findings.append(PatchFinding(current.node_id, {"status": RESOLVED}, current.version))
 
     coverage = [Coverage(t, *outcomes[t]) for t in sorted(grid)]
     delete_edges.extend(existing_coverage[t] for t in sorted(grid) if t in existing_coverage)

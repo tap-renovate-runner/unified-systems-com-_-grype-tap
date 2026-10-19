@@ -16,13 +16,27 @@ from tap_plugin.grype.tests import recordings
 from tap_plugin.grype.tests.test_plan import NOW, as_existing, grid_targets, one_document, parsed, run
 
 
+VULN_FIELDS = frozenset(
+    "vuln_id aliases title description published_at cvss_score cvss_vector cvss_version cvss_source cwes ssvc_exploitation "
+    "ssvc_automatable ssvc_technical_impact ssvc_assessed_at kev kev_added kev_catalog_version kev_due_date kev_required_action "
+    "kev_ransomware_use epss_score epss_percentile epss_date record_url record_updated_at".split()
+)
+FINDING_FIELDS = frozenset("source source_key name summary description status".split())
+FIELDS = {document.VULNERABILITY: VULN_FIELDS, document.FINDING: FINDING_FIELDS}
+
+
+def whole(fields: frozenset[str], given: dict) -> dict:
+    """A node read the way the reader reads it: every field of the type, null where unset."""
+    return {name: given.get(name) for name in fields}
+
+
 def counter():
     n = itertools.count(1)
     return lambda: f"00000000-0000-7000-8000-{next(n):012d}"
 
 
 def context(**kw) -> document.Context:
-    return document.Context(scanner_id="scanner-0", new_id=counter(), now=lambda: NOW, **kw)
+    return document.Context(scanner_id="scanner-0", field_names=FIELDS, new_id=counter(), now=lambda: NOW, **kw)
 
 
 def targets_ctx(grid) -> dict[str, str]:
@@ -143,7 +157,7 @@ class TestSecondRunDocument(unittest.TestCase):
         plan_ = run(self.grid, one_document(self.doc, self.grid), vulnerabilities=[theirs])
         read = document.ExistingNode(
             4,
-            {"vuln_id": "CVE-2021-44228", "aliases": ["GHSA-jfh8-c2jp-5v3q"], "cvss_score": 10.0, "cvss_vector": "AV:N", "cwes": ["CWE-917"], "ssvc_exploitation": "active", "kev": False},
+            whole(VULN_FIELDS, {"vuln_id": "CVE-2021-44228", "aliases": ["GHSA-jfh8-c2jp-5v3q"], "cvss_score": 10.0, "cvss_vector": "AV:N", "cwes": ["CWE-917"], "ssvc_exploitation": "active", "kev": False}),
             {"compliance": "vulnerability", "x.other": "kept"},
             "CVE-2021-44228",
         )
@@ -165,17 +179,55 @@ class TestSecondRunDocument(unittest.TestCase):
     def test_a_version_that_moved_between_planning_and_reading_is_refused(self) -> None:
         theirs = plan.ExistingVulnerability("v-cve", 4, "CVE-2021-44228", ("GHSA-jfh8-c2jp-5v3q",), {"kev": False})
         plan_ = run(self.grid, one_document(self.doc, self.grid), vulnerabilities=[theirs])
-        read = document.ExistingNode(5, {"vuln_id": "CVE-2021-44228"}, {"compliance": "vulnerability"}, "CVE-2021-44228")
+        read = document.ExistingNode(5, whole(VULN_FIELDS, {"vuln_id": "CVE-2021-44228"}), {"compliance": "vulnerability"}, "CVE-2021-44228")
         with self.assertRaises(document.DocumentError):
             document.build_document(plan_, context(existing_nodes={"v-cve": read}))
 
     def test_a_resolved_finding_is_sent_as_the_whole_finding_with_its_version(self) -> None:
-        gone = plan.ExistingFinding('["CVE-0000-0001","computing_core__library","x","1"]', "f-gone", self.grid[0].target.id, plan.OPEN, "x", None)
+        gone = plan.ExistingFinding('["CVE-0000-0001","computing_core__library","x","1"]', "f-gone", self.grid[0].target.id, plan.OPEN, "x", None, 2)
         plan_ = run(self.grid, one_document(self.doc, self.grid), findings=[*self.findings, gone], vulnerabilities=self.vulns)
-        read = document.ExistingNode(2, {"source": "grype", "source_key": gone.key, "name": "n", "summary": "x", "status": "open", "description": "kept"}, {"compliance": "finding"}, "n")
+        read = document.ExistingNode(2, whole(FINDING_FIELDS, {"source": "grype", "source_key": gone.key, "name": "n", "summary": "x", "status": "open", "description": "kept"}), {"compliance": "finding"}, "n")
         batch = self.second(plan_, context(existing_nodes={"f-gone": read}))
         sent = next(n for n in batch["nodes"] if n["entity"]["entity_id"] == "f-gone")
         self.assertEqual((sent["node"]["status"], sent["node"]["description"], sent["entity"]["entity_expected_version"]), ("resolved", "kept", 2))
+
+
+class TestGuardsOnWhatIsSentWhole(unittest.TestCase):
+    """An existing node is replaced by what is sent, so what is sent is checked before it leaves."""
+
+    def setUp(self) -> None:
+        self.doc = parsed(recordings.LOG4J)
+        self.grid = grid_targets(self.doc)
+        first = run(self.grid, one_document(self.doc, self.grid))
+        self.findings, self.vulns = as_existing(first, self.grid)
+        self.gone = plan.ExistingFinding('["CVE-0000-0001","computing_core__library","x","1"]', "f-gone", self.grid[0].target.id, plan.OPEN, "x", None, 3)
+        self.resolving = run(self.grid, one_document(self.doc, self.grid), findings=[*self.findings, self.gone], vulnerabilities=self.vulns)
+        self.read = document.ExistingNode(3, whole(FINDING_FIELDS, {"source": "grype", "source_key": self.gone.key, "name": "n", "status": "open"}), {"compliance": "finding"}, "n")
+
+    def test_a_finding_read_at_a_newer_version_than_planned_is_refused(self) -> None:
+        newer = dataclasses.replace(self.read, version=4)
+        with self.assertRaises(document.DocumentError):
+            document.build_document(self.resolving, context(existing_nodes={"f-gone": newer}))
+        document.build_document(self.resolving, context(existing_nodes={"f-gone": self.read}))  # at the planned version it is sent
+
+    def test_a_node_read_without_a_field_of_its_type_is_refused_rather_than_sent_thin(self) -> None:
+        thin = dataclasses.replace(self.read, properties={k: v for k, v in self.read.properties.items() if k != "description"})
+        with self.assertRaises(document.DocumentError):
+            document.build_document(self.resolving, context(existing_nodes={"f-gone": thin}))
+
+    def test_a_plan_that_patches_a_field_this_plugin_does_not_own_is_refused(self) -> None:
+        foreign = dataclasses.replace(self.resolving, patch_findings=[plan.PatchFinding("f-gone", {"status": "resolved", "description": "mine now"}, 3)])
+        with self.assertRaises(document.DocumentError):
+            document.build_document(foreign, context(existing_nodes={"f-gone": self.read}))
+        vuln = plan.PatchVulnerability("v-cve", 1, {"cvss_score": 1.0})
+        node = document.ExistingNode(1, whole(VULN_FIELDS, {"vuln_id": "CVE-2021-44228"}), {"compliance": "vulnerability"}, "CVE-2021-44228")
+        with self.assertRaises(document.DocumentError):
+            document.build_document(dataclasses.replace(self.resolving, patch_vulnerabilities=[vuln]), context(existing_nodes={"v-cve": node, "f-gone": self.read}))
+
+    def test_a_context_that_does_not_say_what_the_fields_of_a_type_are_cannot_send_a_whole_node(self) -> None:
+        ctx = document.Context(scanner_id="s", field_names={}, new_id=counter(), now=lambda: NOW, existing_nodes={"f-gone": self.read})
+        with self.assertRaises(document.DocumentError):
+            document.build_document(self.resolving, ctx)
 
 
 class TestRunThatScannedNothing(unittest.TestCase):
@@ -204,7 +256,7 @@ class TestAgainstTheGriftSchema(unittest.TestCase):
         second = run(grid, one_document(doc, grid), findings=findings, vulnerabilities=vulns, coverage={g.target.id: f"00000000-0000-7000-8000-{n:012d}" for n, g in enumerate(grid, 100)})
         for label, plan_ in (("first run", first), ("second run", second), ("nothing scanned", plan.plan_unscanned(outcome="db-stale", run_key="k", observed_at=NOW, tool_version="0.120.1"))):
             with self.subTest(label):
-                out = document.build_document(plan_, document.Context(scanner_id="00000000-0000-7000-8000-0000000000aa", new_id=counter(), now=lambda: NOW))
+                out = document.build_document(plan_, document.Context(scanner_id="00000000-0000-7000-8000-0000000000aa", field_names=FIELDS, new_id=counter(), now=lambda: NOW))
                 jsonschema.validate(out, schema)
 
 
