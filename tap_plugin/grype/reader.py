@@ -92,6 +92,11 @@ def known_ids(
     return frozenset([t.target.id for t in targets] + [f.node_id for f in findings] + [v.node_id for v in vulnerabilities])
 
 
+def known_edge_ids(findings: Iterable[plan.ExistingFinding], coverage: Mapping[str, str]) -> frozenset[str]:
+    """The edge ids this run read as the ones it replaces: each finding's reporting edge and each target's coverage edge."""
+    return frozenset([f.reporting_edge_id for f in findings if f.reporting_edge_id] + list(coverage.values()))
+
+
 def read_nodes(patches: plan.Plan) -> dict[str, document.ExistingNode]:
     """The nodes a plan patches, read whole, for ``document.Context``."""
     nodes: dict[str, document.ExistingNode] = {}

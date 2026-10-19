@@ -152,12 +152,13 @@ class TestEndToEnd:
         grid_targets = [gt for gt, _ in rows]
         result = plan.DocumentResult("doc-0", tuple(gt.target.id for gt in grid_targets), self.doc)
         findings, vulnerabilities = reader.read_existing_findings(), reader.read_existing_vulnerabilities()
+        coverage = reader.read_existing_coverage(gt.target.id for gt in grid_targets)
         the_plan = plan.plan_scan(
             targets=grid_targets,
             results=[result],
             existing_findings=findings,
             existing_vulnerabilities=vulnerabilities,
-            existing_coverage=reader.read_existing_coverage(gt.target.id for gt in grid_targets),
+            existing_coverage=coverage,
             run_key=run_key,
             observed_at=NOW,
             tool_version=VERSION,
@@ -166,6 +167,7 @@ class TestEndToEnd:
             scanner_id=str(self.scanner.id),
             field_names=reader.field_names(),
             known_ids=reader.known_ids(grid_targets, findings, vulnerabilities),
+            known_edge_ids=reader.known_edge_ids(findings, coverage),
             existing_nodes=reader.read_nodes(the_plan),
         )
         return the_plan, document.build_document(the_plan, ctx)
@@ -244,6 +246,7 @@ class TestEndToEnd:
             scanner_id=str(self.scanner.id),
             field_names=reader.field_names(),
             known_ids=reader.known_ids(grid_targets, [], vulnerabilities),
+            known_edge_ids=frozenset(),
             existing_nodes=reader.read_nodes(the_plan),
         )
         built = document.build_document(the_plan, ctx)
