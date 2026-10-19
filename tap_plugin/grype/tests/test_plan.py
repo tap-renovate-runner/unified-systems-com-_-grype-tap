@@ -289,6 +289,28 @@ class TestResolveOnlyWhatWasScanned(unittest.TestCase):
         result = run(long_key, one_document(doc, long_key), vulnerabilities=[held])
         self.assertEqual(result.patch_vulnerabilities, [])
 
+    def test_a_refused_target_contributes_no_field_value_to_a_vulnerability_an_accepted_target_also_names(self) -> None:
+        base = self.doc.matches[0]
+        def at(purl: str, source: str):
+            art = dataclasses.replace(base.artifact, purl=purl, name=purl.split("/")[-1].split("@")[0], version="1")
+            return dataclasses.replace(base, artifact=art, data_source=source)
+        refused_first = at("pkg:maven/b/refused@1", "https://example.test/from-the-refused-target")
+        accepted = at("pkg:maven/a/accepted@1", "https://example.test/from-the-accepted-target")
+        def gt(purl: str, natural: tuple[str, ...]) -> plan.GridTarget:
+            return plan.GridTarget(targets.Target(natural[0], "package", natural[0], "1", "maven", purl), "computing_core__package", natural)
+        grid = [gt("pkg:maven/b/refused@1", ("x" * 600,)), gt("pkg:maven/a/accepted@1", ("accepted", "1"))]
+        grid[0] = dataclasses.replace(grid[0], target=dataclasses.replace(grid[0].target, id="refused"))
+        doc = dataclasses.replace(self.doc, matches=(refused_first, accepted))
+        held = plan.ExistingVulnerability("v-cve", 1, "CVE-2021-44228", (base.vuln_id,), {})
+        result = run(grid, one_document(doc, grid), vulnerabilities=[held])
+        patch = next(p for p in result.patch_vulnerabilities if p.node_id == "v-cve")
+        self.assertEqual(patch.fields["record_url"], "https://example.test/from-the-accepted-target")
+
+    def test_two_documents_sharing_a_label_are_refused(self) -> None:
+        ids = tuple(g.target.id for g in self.grid)
+        with self.assertRaises(plan.PlanError):
+            run(self.grid, [plan.DocumentResult("same", ids[:1], self.doc), plan.DocumentResult("same", ids[1:], self.doc)])
+
     def test_a_failed_document_outranks_an_unmapped_match_as_the_reason(self) -> None:
         stray = dataclasses.replace(self.doc.matches[0], artifact=dataclasses.replace(self.doc.matches[0].artifact, purl="pkg:maven/not/in-the-grid@9", name="in-the-grid", version="9"))
         doc = dataclasses.replace(self.doc, matches=(*self.doc.matches, stray))

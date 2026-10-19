@@ -20,8 +20,8 @@ The rules, in the order the plan applies them:
   turn the same finding into a new one.
 * An existing finding of a ``scanned`` target that no longer matches is resolved; a resolved one that matches again is
   reopened; matches from parsed documents create or reopen findings even for a not-scanned target.
-* A vulnerability is written (minted or patched) only when a finding of an accepted target points at it, so a refused
-  or unmapped match leaves no orphan node and no partial write behind.
+* A vulnerability is written (minted or patched) only from the matches of accepted targets: a refused or unmapped
+  match contributes no node, no patch and no field value, even to a vulnerability another target also names.
 * A vulnerability is found under any of its ids (as ``vuln_id`` or as an alias) before one is minted. Two different
   existing nodes for one vulnerability are refused, not guessed between.
 * The plugin writes only the vulnerability fields it owns, and only values that differ; it never writes ``null`` over
@@ -337,6 +337,9 @@ def plan_scan(
     grid = {gt.target.id: gt for gt in targets}
     if len(grid) != len(targets):
         raise PlanError("two targets share an id")
+    labels = [r.label for r in results]
+    if len(set(labels)) != len(labels):
+        raise PlanError("two documents share a label; a document is identified by it")
     documents: dict[str, list[DocumentResult]] = defaultdict(list)
     for result in results:
         for target_id in result.target_ids:
@@ -385,7 +388,7 @@ def plan_scan(
     patch_findings: list[PatchFinding] = []
     reports: list[Report] = []
     delete_edges: list[str] = []
-    used: set[str] = set()  # vulnerability keys that an accepted target's finding points at
+    accepted: list[Match] = []  # the matches of targets that were not refused; vulnerability writes come from these alone
     for target_id in sorted(grid):
         gt = grid[target_id]
         matched: set[str] = set()
@@ -406,9 +409,9 @@ def plan_scan(
         if blocked:
             outcomes[target_id] = (FAILED, blocked)
             continue  # nothing about this target is written, and nothing is resolved
+        accepted.extend(per_target.get(target_id, ()))
         for key, (fact, ref) in planned:
             matched.add(key)
-            used.add(fact.key)
             summary = _clip(f"Grype severity {fact.severity}; fix {fact.fix_state}", SUMMARY_LIMIT)
             current = existing_by_target[target_id].get(key)
             if current is None:
@@ -442,6 +445,12 @@ def plan_scan(
                 if key not in matched and current.status == OPEN:
                     patch_findings.append(PatchFinding(current.node_id, {"status": RESOLVED}))
 
+    # Vulnerability writes: facts over the accepted matches only, resolved against the same existing nodes.
+    accepted_doc = Document(grype_version=combined.grype_version, db=db, matches=tuple(accepted)) if combined and accepted else None
+    _, _, mint_vulns, patch_vulns = _resolve_vulnerabilities(
+        vulnerability_facts(accepted_doc) if accepted_doc else {}, existing_vulnerabilities, data_version
+    )
+
     coverage = [Coverage(t, *outcomes[t]) for t in sorted(grid)]
     delete_edges.extend(existing_coverage[t] for t in sorted(grid) if t in existing_coverage)
 
@@ -457,8 +466,8 @@ def plan_scan(
     return Plan(
         run=_run_fields(outcome, run_key, observed_at, tool_version, results_count, db),
         coverage=coverage,
-        mint_vulnerabilities=[m for m in mint_vulns if m.key in used],
-        patch_vulnerabilities=[pv for pv in patch_vulns if pv.node_id in {r.value for k, r in refs.items() if k in used and r is not None and r.kind == "existing"}],
+        mint_vulnerabilities=mint_vulns,
+        patch_vulnerabilities=patch_vulns,
         mint_findings=mint_findings,
         patch_findings=patch_findings,
         reports=reports,
