@@ -9,8 +9,8 @@ description = "A grid-native Grype scan: builds an SBOM from the packages on the
 # library, host and operating-system rows and calls its SBOM builder. compliance_core: the collector
 # writes vulnerability, scanner, scan run and finding nodes and their edges. Data order (the scan
 # runs after the inventory is collected) is Tier-2 and handled by the upstream-skip rule in
-# req-grype-trigger, not here. Nothing imports either yet; the dependencies are declared ahead of
-# the code that will use them, per the spec.
+# req-grype-trigger, not here. The reader imports both packages' models, so the declaration is
+# now observed; the SBOM builder import arrives with the collector.
 depends_on = [
   { slug = "computing_core", note = "reads package, library, host and operating_system rows; calls build_cyclonedx" },
   { slug = "compliance_core", note = "writes vulnerability, scanner, scan_run and finding nodes and their edges" },

@@ -4,8 +4,9 @@ The collector scans packages and libraries the grid already holds, so every matc
 or be counted as unmapped; a match is never dropped silently and never guessed onto the wrong node. Two
 tiers, strictest first: the artifact's canonical purl equals the target's canonical purl, then the purl type,
 name and version equal the target's ecosystem, name and version. A tier that finds more than one target
-refuses to choose and reports the match as ``ambiguous``. The second tier exists for packages only: a library
-carries no ecosystem, so a library is found by its canonical purl alone.
+refuses to choose and reports the match as ``ambiguous``. The second tier applies to any target that carries an
+ecosystem, which computing_core defines as the purl type of its identity (packages and libraries both do); a target
+with none is found by its canonical purl alone.
 """
 
 from __future__ import annotations
@@ -147,7 +148,7 @@ def map_matches(matches: list[Match] | tuple[Match, ...], targets: list[Target])
         canonical = canonical_purl(target.purl) if target.purl else None
         if canonical:
             by_purl[canonical].append(target)
-        if target.kind == "package" and target.ecosystem:
+        if target.ecosystem:  # a package and a library both carry one: it is the purl type of their identity
             by_key[(target.ecosystem.lower(), target.name, target.version)].append(target)
     mapped: dict[str, list[Match]] = defaultdict(list)
     unmapped: list[tuple[Match, str]] = []
