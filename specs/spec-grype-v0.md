@@ -203,6 +203,8 @@ The plugin mints a vulnerability node when a match names one the grid does not h
 
 **Identity.** `vuln_id` is the CVE id: the match's own id if it is a CVE, else the first CVE in `relatedVulnerabilities`, else the match id (a GHSA with no CVE). Every other id is an `aliases` entry (observed: a match id that is the GHSA with the CVE in `relatedVulnerabilities`).
 
+**Written only when a finding needs it.** A vulnerability is minted or patched only when a finding of an accepted target points at it; a vulnerability named only by an unmapped match, or only by a target refused for a key or an ambiguity, is left for a later run, so no orphan node and no partial write is left behind.
+
 **Alias-aware lookup.** Before minting, the collector looks for an existing node under any of the ids as `vuln_id` and any as an alias. A node found under one id is used and given the others as aliases; a vulnerability seen first by another producer under its GHSA must not become a second node when Grype names the CVE.
 
 **Owned fields, written by partial patch.** `aliases` (union, never removed), `description` (only when `null`; once any source has written it, it is not replaced), `record_url` (Grype's `dataSource`), the KEV fields and the EPSS fields. The patch path is `patch_node`, whose omitted fields are unchanged; GRIFT's node lane is full-object and could blank CVSS or SSVC another source wrote, so it is not used on an existing vulnerability. Writes carry `entity_expected_version` so a concurrent writer is detected and re-read, never overwritten. CVSS, CWE and SSVC are other sources' facts (the CI-side enrichment, tap#1044) and this plugin does not write them.

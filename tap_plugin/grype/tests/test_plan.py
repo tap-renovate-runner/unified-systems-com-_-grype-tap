@@ -276,6 +276,19 @@ class TestResolveOnlyWhatWasScanned(unittest.TestCase):
         self.assertEqual(len(result.unmapped), len(self.doc.matches))
         self.assertEqual(result.run["outcome"], "partial")
 
+    def test_a_vulnerability_only_an_unmapped_match_names_is_not_minted(self) -> None:
+        extra = plan.GridTarget(targets.Target("lonely", "library", "lonely", "1", None, "pkg:generic/lonely@1"), "computing_core__library", ("lonely", "1"))
+        result = run([extra], [plan.DocumentResult("doc-0", ("lonely",), self.doc)])
+        self.assertEqual((result.mint_vulnerabilities, result.patch_vulnerabilities), ([], []))
+
+    def test_an_existing_vulnerability_only_a_refused_target_names_is_not_patched(self) -> None:
+        doc = parsed(recordings.LOG4J)
+        grid = grid_targets(doc)
+        long_key = [dataclasses.replace(grid[0], natural_key=("x" * 600,))]
+        held = plan.ExistingVulnerability("v-cve", 1, "CVE-2021-44228", ("GHSA-jfh8-c2jp-5v3q",), {"kev": False})
+        result = run(long_key, one_document(doc, long_key), vulnerabilities=[held])
+        self.assertEqual(result.patch_vulnerabilities, [])
+
     def test_a_failed_document_outranks_an_unmapped_match_as_the_reason(self) -> None:
         stray = dataclasses.replace(self.doc.matches[0], artifact=dataclasses.replace(self.doc.matches[0].artifact, purl="pkg:maven/not/in-the-grid@9", name="in-the-grid", version="9"))
         doc = dataclasses.replace(self.doc, matches=(*self.doc.matches, stray))
@@ -345,6 +358,7 @@ class TestFindingKeys(unittest.TestCase):
         refused = run([long_key], one_document(doc, [long_key]), findings=[old])
         self.assertEqual([(c.outcome, c.reason) for c in refused.coverage], [("failed", "finding-key-too-long")])
         self.assertEqual((refused.mint_findings, refused.patch_findings, refused.reports), ([], [], []))
+        self.assertEqual((refused.mint_vulnerabilities, refused.patch_vulnerabilities), ([], []))  # no orphan vulnerability either
         self.assertEqual(refused.run["outcome"], "partial")
 
 

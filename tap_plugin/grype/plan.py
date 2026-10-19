@@ -20,6 +20,8 @@ The rules, in the order the plan applies them:
   turn the same finding into a new one.
 * An existing finding of a ``scanned`` target that no longer matches is resolved; a resolved one that matches again is
   reopened; matches from parsed documents create or reopen findings even for a not-scanned target.
+* A vulnerability is written (minted or patched) only when a finding of an accepted target points at it, so a refused
+  or unmapped match leaves no orphan node and no partial write behind.
 * A vulnerability is found under any of its ids (as ``vuln_id`` or as an alias) before one is minted. Two different
   existing nodes for one vulnerability are refused, not guessed between.
 * The plugin writes only the vulnerability fields it owns, and only values that differ; it never writes ``null`` over
@@ -383,6 +385,7 @@ def plan_scan(
     patch_findings: list[PatchFinding] = []
     reports: list[Report] = []
     delete_edges: list[str] = []
+    used: set[str] = set()  # vulnerability keys that an accepted target's finding points at
     for target_id in sorted(grid):
         gt = grid[target_id]
         matched: set[str] = set()
@@ -405,6 +408,7 @@ def plan_scan(
             continue  # nothing about this target is written, and nothing is resolved
         for key, (fact, ref) in planned:
             matched.add(key)
+            used.add(fact.key)
             summary = _clip(f"Grype severity {fact.severity}; fix {fact.fix_state}", SUMMARY_LIMIT)
             current = existing_by_target[target_id].get(key)
             if current is None:
@@ -453,8 +457,8 @@ def plan_scan(
     return Plan(
         run=_run_fields(outcome, run_key, observed_at, tool_version, results_count, db),
         coverage=coverage,
-        mint_vulnerabilities=mint_vulns,
-        patch_vulnerabilities=patch_vulns,
+        mint_vulnerabilities=[m for m in mint_vulns if m.key in used],
+        patch_vulnerabilities=[pv for pv in patch_vulns if pv.node_id in {r.value for k, r in refs.items() if k in used and r is not None and r.kind == "existing"}],
         mint_findings=mint_findings,
         patch_findings=patch_findings,
         reports=reports,
