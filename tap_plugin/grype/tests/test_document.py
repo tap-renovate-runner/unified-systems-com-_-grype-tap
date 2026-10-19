@@ -35,8 +35,18 @@ def counter():
     return lambda: f"00000000-0000-7000-8000-{next(n):012d}"
 
 
-def context(**kw) -> document.Context:
-    return document.Context(scanner_id="scanner-0", field_names=FIELDS, new_id=counter(), now=lambda: NOW, **kw)
+def known_for(plan_: plan.Plan) -> frozenset[str]:
+    """What a reader would have read for this plan: its targets and the existing nodes it points at."""
+    ids = {c.target_id for c in plan_.coverage} | {f.target_id for f in plan_.mint_findings}
+    ids |= {f.vulnerability.value for f in plan_.mint_findings if f.vulnerability.kind == "existing"}
+    ids |= {r.finding.value for r in plan_.reports if r.finding.kind == "existing"}
+    ids |= {p.node_id for p in plan_.patch_vulnerabilities} | {p.node_id for p in plan_.patch_findings}
+    return frozenset(ids)
+
+
+def context(plan_: plan.Plan, **kw) -> document.Context:
+    known = kw.pop("known_ids", known_for(plan_))
+    return document.Context(scanner_id="scanner-0", field_names=FIELDS, known_ids=known, new_id=counter(), now=lambda: NOW, **kw)
 
 
 def targets_ctx(grid) -> dict[str, str]:
@@ -49,7 +59,7 @@ class TestFirstRunDocument(unittest.TestCase):
         cls.doc = parsed(recordings.LOG4J)
         cls.grid = grid_targets(cls.doc)
         cls.plan = run(cls.grid, one_document(cls.doc, cls.grid))
-        cls.out = document.build_document(cls.plan, context())
+        cls.out = document.build_document(cls.plan, context(cls.plan))
         cls.batch = cls.out["batches"][0]
 
     def kinds(self, key: str, field: str) -> list[str]:
@@ -109,7 +119,8 @@ class TestFirstRunDocument(unittest.TestCase):
         def with_state(state: str):
             matches = tuple(dataclasses.replace(m, fix_state=state, fixed_versions=()) for m in self.doc.matches)
             doc = dataclasses.replace(self.doc, matches=matches)
-            batch = document.build_document(run(self.grid, one_document(doc, self.grid)), context())["batches"][0]
+            built_plan = run(self.grid, one_document(doc, self.grid))
+            batch = document.build_document(built_plan, context(built_plan))["batches"][0]
             return [e["edge"]["properties"] for e in batch["edges"] if e["edge"]["edge_type"] == document.CONCERNS]
         self.assertTrue(all("fixed_versions" not in p for p in with_state("unknown")))
         self.assertTrue(all(p.get("fixed_versions") == [] for p in with_state("not-fixed")))
@@ -117,7 +128,7 @@ class TestFirstRunDocument(unittest.TestCase):
     def test_a_plan_that_points_at_a_node_it_does_not_create_is_refused(self) -> None:
         broken = dataclasses.replace(self.plan, mint_vulnerabilities=[])
         with self.assertRaises(document.DocumentError):
-            document.build_document(broken, context())
+            document.build_document(broken, context(broken))
 
     def test_every_edge_endpoint_is_in_the_batch_or_a_node_the_plan_was_given(self) -> None:
         defined = set(self.kinds("nodes", "entity_id"))
@@ -145,7 +156,7 @@ class TestSecondRunDocument(unittest.TestCase):
 
     def test_replaced_edges_go_into_deletes_by_id(self) -> None:
         plan_ = run(self.grid, one_document(self.doc, self.grid), findings=self.findings, vulnerabilities=self.vulns, coverage={g.target.id: f"cov-{g.target.id}" for g in self.grid})
-        batch = self.second(plan_, context())
+        batch = self.second(plan_, context(plan_))
         deletes = batch["deletes"]
         self.assertEqual((deletes["on_missing"], deletes["on_tombstoned"], deletes["nodes"]), ("error", "error", []))  # a stale snapshot is refused
         self.assertEqual({d["entity_id"] for d in deletes["edges"]}, {f.reporting_edge_id for f in self.findings} | {f"cov-{g.target.id}" for g in self.grid})
@@ -161,7 +172,7 @@ class TestSecondRunDocument(unittest.TestCase):
             {"compliance": "vulnerability", "x.other": "kept"},
             "CVE-2021-44228",
         )
-        batch = self.second(plan_, context(existing_nodes={"v-cve": read}))
+        batch = self.second(plan_, context(plan_, existing_nodes={"v-cve": read}))
         sent = next(n for n in batch["nodes"] if n["entity"]["entity_id"] == "v-cve")
         self.assertEqual(sent["entity"]["entity_expected_version"], 4)
         self.assertEqual(sent["entity"]["dimensions"], {"compliance": "vulnerability", "x.other": "kept"})
@@ -174,20 +185,20 @@ class TestSecondRunDocument(unittest.TestCase):
         theirs = plan.ExistingVulnerability("v-cve", 4, "CVE-2021-44228", ("GHSA-jfh8-c2jp-5v3q",), {"kev": False})
         plan_ = run(self.grid, one_document(self.doc, self.grid), vulnerabilities=[theirs])
         with self.assertRaises(document.DocumentError):
-            document.build_document(plan_, context())
+            document.build_document(plan_, context(plan_))
 
     def test_a_version_that_moved_between_planning_and_reading_is_refused(self) -> None:
         theirs = plan.ExistingVulnerability("v-cve", 4, "CVE-2021-44228", ("GHSA-jfh8-c2jp-5v3q",), {"kev": False})
         plan_ = run(self.grid, one_document(self.doc, self.grid), vulnerabilities=[theirs])
         read = document.ExistingNode(5, whole(VULN_FIELDS, {"vuln_id": "CVE-2021-44228"}), {"compliance": "vulnerability"}, "CVE-2021-44228")
         with self.assertRaises(document.DocumentError):
-            document.build_document(plan_, context(existing_nodes={"v-cve": read}))
+            document.build_document(plan_, context(plan_, existing_nodes={"v-cve": read}))
 
     def test_a_resolved_finding_is_sent_as_the_whole_finding_with_its_version(self) -> None:
         gone = plan.ExistingFinding('["CVE-0000-0001","computing_core__library","x","1"]', "f-gone", self.grid[0].target.id, plan.OPEN, "x", None, 2)
         plan_ = run(self.grid, one_document(self.doc, self.grid), findings=[*self.findings, gone], vulnerabilities=self.vulns)
         read = document.ExistingNode(2, whole(FINDING_FIELDS, {"source": "grype", "source_key": gone.key, "name": "n", "summary": "x", "status": "open", "description": "kept"}), {"compliance": "finding"}, "n")
-        batch = self.second(plan_, context(existing_nodes={"f-gone": read}))
+        batch = self.second(plan_, context(plan_, existing_nodes={"f-gone": read}))
         sent = next(n for n in batch["nodes"] if n["entity"]["entity_id"] == "f-gone")
         self.assertEqual((sent["node"]["status"], sent["node"]["description"], sent["entity"]["entity_expected_version"]), ("resolved", "kept", 2))
 
@@ -199,6 +210,7 @@ class TestGuardsOnWhatIsSentWhole(unittest.TestCase):
         self.doc = parsed(recordings.LOG4J)
         self.grid = grid_targets(self.doc)
         first = run(self.grid, one_document(self.doc, self.grid))
+        self.first_plan = first
         self.findings, self.vulns = as_existing(first, self.grid)
         self.gone = plan.ExistingFinding('["CVE-0000-0001","computing_core__library","x","1"]', "f-gone", self.grid[0].target.id, plan.OPEN, "x", None, 3)
         self.resolving = run(self.grid, one_document(self.doc, self.grid), findings=[*self.findings, self.gone], vulnerabilities=self.vulns)
@@ -207,25 +219,43 @@ class TestGuardsOnWhatIsSentWhole(unittest.TestCase):
     def test_a_finding_read_at_a_newer_version_than_planned_is_refused(self) -> None:
         newer = dataclasses.replace(self.read, version=4)
         with self.assertRaises(document.DocumentError):
-            document.build_document(self.resolving, context(existing_nodes={"f-gone": newer}))
-        document.build_document(self.resolving, context(existing_nodes={"f-gone": self.read}))  # at the planned version it is sent
+            document.build_document(self.resolving, context(self.resolving, existing_nodes={"f-gone": newer}))
+        document.build_document(self.resolving, context(self.resolving, existing_nodes={"f-gone": self.read}))  # at the planned version it is sent
 
     def test_a_node_read_without_a_field_of_its_type_is_refused_rather_than_sent_thin(self) -> None:
         thin = dataclasses.replace(self.read, properties={k: v for k, v in self.read.properties.items() if k != "description"})
         with self.assertRaises(document.DocumentError):
-            document.build_document(self.resolving, context(existing_nodes={"f-gone": thin}))
+            document.build_document(self.resolving, context(self.resolving, existing_nodes={"f-gone": thin}))
+
+    def test_a_node_read_with_a_field_its_type_does_not_declare_is_refused_not_written_back(self) -> None:
+        extra = dataclasses.replace(self.read, properties={**self.read.properties, "unexpected_field": "value"})
+        with self.assertRaises(document.DocumentError):
+            document.build_document(self.resolving, context(self.resolving, existing_nodes={"f-gone": extra}))
+
+    def test_an_edge_to_an_id_this_run_never_read_is_refused(self) -> None:
+        stranger = "00000000-0000-7000-8000-00000000ffff"
+        for label, bad in (
+            ("coverage", dataclasses.replace(self.resolving, coverage=[plan.Coverage(stranger, "scanned", None), *self.resolving.coverage])),
+            ("carries", dataclasses.replace(self.first_plan, mint_findings=[dataclasses.replace(f, target_id=stranger) for f in self.first_plan.mint_findings[:1]])),
+            ("reports", dataclasses.replace(self.resolving, reports=[plan.Report(plan.Ref.existing(stranger))])),
+        ):
+            base = self.first_plan if label == "carries" else self.resolving
+            known = known_for(base)  # what a reader would have read: the legitimate plan's nodes, not the stranger
+            with self.subTest(label), self.assertRaises(document.DocumentError):
+                document.build_document(bad, context(bad, known_ids=known, existing_nodes={"f-gone": self.read}))
 
     def test_a_plan_that_patches_a_field_this_plugin_does_not_own_is_refused(self) -> None:
         foreign = dataclasses.replace(self.resolving, patch_findings=[plan.PatchFinding("f-gone", {"status": "resolved", "description": "mine now"}, 3)])
         with self.assertRaises(document.DocumentError):
-            document.build_document(foreign, context(existing_nodes={"f-gone": self.read}))
+            document.build_document(foreign, context(foreign, existing_nodes={"f-gone": self.read}))
         vuln = plan.PatchVulnerability("v-cve", 1, {"cvss_score": 1.0})
         node = document.ExistingNode(1, whole(VULN_FIELDS, {"vuln_id": "CVE-2021-44228"}), {"compliance": "vulnerability"}, "CVE-2021-44228")
         with self.assertRaises(document.DocumentError):
-            document.build_document(dataclasses.replace(self.resolving, patch_vulnerabilities=[vuln]), context(existing_nodes={"v-cve": node, "f-gone": self.read}))
+            patched = dataclasses.replace(self.resolving, patch_vulnerabilities=[vuln])
+            document.build_document(patched, context(patched, existing_nodes={"v-cve": node, "f-gone": self.read}))
 
     def test_a_context_that_does_not_say_what_the_fields_of_a_type_are_cannot_send_a_whole_node(self) -> None:
-        ctx = document.Context(scanner_id="s", field_names={}, new_id=counter(), now=lambda: NOW, existing_nodes={"f-gone": self.read})
+        ctx = document.Context(scanner_id="s", field_names={}, known_ids=known_for(self.resolving), new_id=counter(), now=lambda: NOW, existing_nodes={"f-gone": self.read})
         with self.assertRaises(document.DocumentError):
             document.build_document(self.resolving, ctx)
 
@@ -233,7 +263,7 @@ class TestGuardsOnWhatIsSentWhole(unittest.TestCase):
 class TestRunThatScannedNothing(unittest.TestCase):
     def test_the_document_is_the_run_and_its_scanner_edge_only(self) -> None:
         empty = plan.plan_unscanned(outcome="db-stale", run_key="k", observed_at=NOW, tool_version="0.120.1")
-        batch = document.build_document(empty, context())["batches"][0]
+        batch = document.build_document(empty, context(empty))["batches"][0]
         self.assertEqual([n["entity"]["entity_type"] for n in batch["nodes"]], [document.RUN])
         self.assertEqual([e["edge"]["edge_type"] for e in batch["edges"]], [document.PERFORMS])
         self.assertNotIn("deletes", batch)
@@ -254,9 +284,24 @@ class TestAgainstTheGriftSchema(unittest.TestCase):
         first = run(grid, one_document(doc, grid))
         findings, vulns = as_existing(first, grid)
         second = run(grid, one_document(doc, grid), findings=findings, vulnerabilities=vulns, coverage={g.target.id: f"00000000-0000-7000-8000-{n:012d}" for n, g in enumerate(grid, 100)})
-        for label, plan_ in (("first run", first), ("second run", second), ("nothing scanned", plan.plan_unscanned(outcome="db-stale", run_key="k", observed_at=NOW, tool_version="0.120.1"))):
+        # A run that patches existing nodes whole: a vulnerability another source wrote, and a finding that stopped matching.
+        theirs = plan.ExistingVulnerability("00000000-0000-7000-8000-0000000000b1", 4, "CVE-2021-44228", ("GHSA-jfh8-c2jp-5v3q",), {"kev": False})
+        gone = plan.ExistingFinding('["CVE-0000-0001","computing_core__library","x","1"]', "00000000-0000-7000-8000-0000000000b2", grid[0].target.id, plan.OPEN, "x", None, 2)
+        patching = run(grid, one_document(doc, grid), findings=[*findings, gone], vulnerabilities=[theirs])
+        nodes = {
+            theirs.node_id: document.ExistingNode(4, whole(VULN_FIELDS, {"vuln_id": "CVE-2021-44228", "aliases": ["GHSA-jfh8-c2jp-5v3q"], "cvss_score": 10.0, "kev": False}), {"compliance": "vulnerability"}, "CVE-2021-44228"),
+            gone.node_id: document.ExistingNode(2, whole(FINDING_FIELDS, {"source": "grype", "source_key": gone.key, "name": "n", "summary": "x", "status": "open"}), {"compliance": "finding"}, "n"),
+        }
+        scanner = "00000000-0000-7000-8000-0000000000aa"
+        cases = (
+            ("first run", first, {}),
+            ("second run", second, {}),
+            ("a run that patches existing nodes", patching, nodes),
+            ("nothing scanned", plan.plan_unscanned(outcome="db-stale", run_key="k", observed_at=NOW, tool_version="0.120.1"), {}),
+        )
+        for label, plan_, existing in cases:
             with self.subTest(label):
-                out = document.build_document(plan_, document.Context(scanner_id="00000000-0000-7000-8000-0000000000aa", field_names=FIELDS, new_id=counter(), now=lambda: NOW))
+                out = document.build_document(plan_, document.Context(scanner_id=scanner, field_names=FIELDS, known_ids=known_for(plan_), existing_nodes=existing, new_id=counter(), now=lambda: NOW))
                 jsonschema.validate(out, schema)
 
 
