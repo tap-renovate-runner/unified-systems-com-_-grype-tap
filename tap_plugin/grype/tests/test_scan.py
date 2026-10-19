@@ -157,6 +157,15 @@ class TestMapping(unittest.TestCase):
         package_matches = [m for m in doc.matches if targets.purl_type(m.artifact.purl) != "generic"]
         self.assertEqual(sum(len(mapping.mapped.get(t.id, [])) for t in packages), len(package_matches))
 
+    def test_a_library_with_an_ecosystem_is_found_by_the_natural_key_and_one_without_is_not(self) -> None:
+        doc = output.parse_document(recordings.text(recordings.TAP_WEB), expected_version=VERSION)
+        match = next(m for m in doc.matches if targets.purl_type(m.artifact.purl) == "generic")
+        respelled = f"pkg:generic/x/{match.artifact.name}@{match.artifact.version}"
+        with_eco = targets.Target("lib", "library", match.artifact.name, match.artifact.version, "generic", respelled)
+        without = targets.Target("lib", "library", match.artifact.name, match.artifact.version, None, respelled)
+        self.assertEqual(list(targets.map_matches([match], [with_eco]).mapped), ["lib"])
+        self.assertEqual([r for _, r in targets.map_matches([match], [without]).unmapped], [targets.NO_TARGET])
+
     def test_two_candidates_are_ambiguous_and_never_guessed(self) -> None:
         doc = output.parse_document(recordings.text(recordings.TAP_WEB), expected_version=VERSION)
         match = doc.matches[0]
