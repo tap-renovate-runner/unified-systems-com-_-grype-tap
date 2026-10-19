@@ -11,6 +11,7 @@ import shutil
 import stat
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from tap_plugin.grype import output, scan, targets
@@ -205,6 +206,14 @@ class TestScratch(unittest.TestCase):
             shutil.rmtree(path)
             raise RuntimeError("the run failed")
         self.assertEqual(getattr(caught.exception, "__notes__", []), [])
+
+    def test_a_missing_file_error_while_the_directory_remains_is_still_reported(self) -> None:
+        with mock.patch.object(scan.shutil, "rmtree", side_effect=FileNotFoundError("a child vanished mid-walk")):
+            with self.assertRaises(scan.ScanError), scan.scratch_dir(self.home, "run-00000012"):
+                pass
+            with self.assertRaises(RuntimeError) as caught, scan.scratch_dir(self.home, "run-00000013"):
+                raise RuntimeError("the run failed")
+        self.assertTrue(any("was not removed" in note for note in caught.exception.__notes__))
 
     def test_a_cleanup_failure_is_reported_never_swallowed(self) -> None:
         original = scan.shutil.rmtree

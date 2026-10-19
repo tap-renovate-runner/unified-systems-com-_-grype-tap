@@ -28,6 +28,19 @@ class ScanError(RuntimeError):
     """A document could not be scanned or its output could not be trusted."""
 
 
+def _remove_tree(path: Path) -> None:
+    """Remove ``path``; a directory that is already gone is fine, but only if it is truly gone.
+
+    ``FileNotFoundError`` can also come from inside the walk while the directory still exists, so it is
+    forgiven only when nothing is left at ``path``; otherwise it is raised and reported like any other failure.
+    """
+    try:
+        shutil.rmtree(path)
+    except FileNotFoundError:
+        if os.path.lexists(path):
+            raise
+
+
 @contextmanager
 def scratch_dir(home: Path, run_id: str) -> Iterator[Path]:
     """``<home>/scratch/<run_id>/``: per run, mode 0700, never fixed or cwd-relative, removed on exit.
@@ -47,17 +60,13 @@ def scratch_dir(home: Path, run_id: str) -> Iterator[Path]:
     except BaseException as error:
         # An error is already in flight: tidy up as well as possible, say so if that failed, and never mask it.
         try:
-            shutil.rmtree(path)
-        except FileNotFoundError:
-            pass  # already gone: the postcondition holds
+            _remove_tree(path)
         except OSError as cleanup:
             error.add_note(f"the scratch directory {path} was not removed: {cleanup}")
         raise
     else:
         try:
-            shutil.rmtree(path)
-        except FileNotFoundError:
-            pass  # removed by the caller already: nothing remains, which is what the cleanup is for
+            _remove_tree(path)
         except OSError as cleanup:
             raise ScanError(f"the scratch directory {path} was not removed: {cleanup}") from cleanup
 
