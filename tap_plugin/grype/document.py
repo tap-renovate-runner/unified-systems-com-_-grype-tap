@@ -78,6 +78,10 @@ class Context:
     #: Every field of each node type this plugin updates, as the model declares them (the reader takes them from the
     #: model). A node read without all of them would be sent back thin and blank what it lacks, so it is refused.
     field_names: Mapping[str, frozenset[str]]
+    #: The ids of the nodes this run read from the grid (targets, existing findings and vulnerabilities). An edge may
+    #: only name a node this run created, the scanner, or one of these: a plan cannot attach a relationship to an id
+    #: nobody read.
+    known_ids: frozenset[str]
     #: The nodes the plan patches, by id. A patch of a node not in here is refused, never sent blind.
     existing_nodes: Mapping[str, ExistingNode] = field(default_factory=dict)
     new_id: Callable[[], str] = lambda: str(uuid7())
@@ -163,14 +167,12 @@ def build_document(plan: planning.Plan, ctx: Context, *, batch_name: str | None 
         props = {"outcome": cover.outcome, **({"reason": cover.reason} if cover.reason else {})}
         edges.append(_edge(ctx.new_id(), SCANNED, run_id, cover.target_id, props))
 
-    external = {ctx.scanner_id, *(c.target_id for c in plan.coverage), *(f.target_id for f in plan.mint_findings)}
-    external |= {f.vulnerability.value for f in plan.mint_findings if f.vulnerability.kind == "existing"}
-    external |= {r.finding.value for r in plan.reports if r.finding.kind == "existing"}
+    allowed = {ctx.scanner_id, *ctx.known_ids}
     defined = {n["entity"]["entity_id"] for n in nodes}
     for edge in edges:
         for end in (edge["edge"]["from_entity_id"], edge["edge"]["to_entity_id"]):
-            if end not in defined and end not in external:
-                raise DocumentError(f"edge {edge['edge']['edge_type']} names {end!r}, which is neither in this batch nor a node the plan was given")
+            if end not in defined and end not in allowed:
+                raise DocumentError(f"edge {edge['edge']['edge_type']} names {end!r}, which is neither created by this batch nor a node this run read")
 
     name = batch_name or f"Grype scan {run['run_key']}"
     batch: dict[str, Any] = {
