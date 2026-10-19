@@ -7,6 +7,7 @@ version checks and the controls on the invocation are exercised for real.
 
 import json
 import os
+import shutil
 import stat
 import tempfile
 import unittest
@@ -196,6 +197,14 @@ class TestScratch(unittest.TestCase):
             (three / "left-behind").write_text("x")
             raise RuntimeError("the run failed")
         self.assertEqual(list((self.home / "scratch").iterdir()), [])
+
+    def test_a_directory_the_caller_already_removed_is_not_a_cleanup_failure(self) -> None:
+        with scan.scratch_dir(self.home, "run-00000010") as path:
+            shutil.rmtree(path)
+        with self.assertRaises(RuntimeError) as caught, scan.scratch_dir(self.home, "run-00000011") as path:
+            shutil.rmtree(path)
+            raise RuntimeError("the run failed")
+        self.assertEqual(getattr(caught.exception, "__notes__", []), [])
 
     def test_a_cleanup_failure_is_reported_never_swallowed(self) -> None:
         original = scan.shutil.rmtree

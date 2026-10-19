@@ -34,7 +34,7 @@ def scratch_dir(home: Path, run_id: str) -> Iterator[Path]:
 
     The run id is checked against a plain pattern, so it cannot name another directory. Two concurrent runs
     have different ids and so never share a path; the directory is removed whether the run ended or failed, and
-    a removal that fails is reported (as a ``ScanError``, or as a note on the error already in flight).
+    a removal that fails is reported (as a ``ScanError``, or as a note on the error already in flight); a directory already removed is not a failure.
     """
     if not _RUN_ID.match(run_id):
         raise ScanError(f"run id {run_id!r} is not a plain identifier")
@@ -48,12 +48,16 @@ def scratch_dir(home: Path, run_id: str) -> Iterator[Path]:
         # An error is already in flight: tidy up as well as possible, say so if that failed, and never mask it.
         try:
             shutil.rmtree(path)
+        except FileNotFoundError:
+            pass  # already gone: the postcondition holds
         except OSError as cleanup:
             error.add_note(f"the scratch directory {path} was not removed: {cleanup}")
         raise
     else:
         try:
             shutil.rmtree(path)
+        except FileNotFoundError:
+            pass  # removed by the caller already: nothing remains, which is what the cleanup is for
         except OSError as cleanup:
             raise ScanError(f"the scratch directory {path} was not removed: {cleanup}") from cleanup
 
