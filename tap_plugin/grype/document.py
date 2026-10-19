@@ -82,6 +82,9 @@ class Context:
     #: only name a node this run created, the scanner, or one of these: a plan cannot attach a relationship to an id
     #: nobody read.
     known_ids: frozenset[str]
+    #: The ids of the edges this run read as the ones it replaces (each finding's reporting edge, each target's coverage
+    #: edge). A deletion of any other edge id is refused: a plan cannot end a relationship nobody read.
+    known_edge_ids: frozenset[str]
     #: The nodes the plan patches, by id. A patch of a node not in here is refused, never sent blind.
     existing_nodes: Mapping[str, ExistingNode] = field(default_factory=dict)
     new_id: Callable[[], str] = lambda: str(uuid7())
@@ -167,6 +170,9 @@ def build_document(plan: planning.Plan, ctx: Context, *, batch_name: str | None 
         props = {"outcome": cover.outcome, **({"reason": cover.reason} if cover.reason else {})}
         edges.append(_edge(ctx.new_id(), SCANNED, run_id, cover.target_id, props))
 
+    unread = sorted(set(plan.delete_edges) - ctx.known_edge_ids)
+    if unread:
+        raise DocumentError(f"the plan deletes edge(s) {unread[:3]}, which this run did not read as ones it replaces")
     allowed = {ctx.scanner_id, *ctx.known_ids}
     defined = {n["entity"]["entity_id"] for n in nodes}
     for edge in edges:

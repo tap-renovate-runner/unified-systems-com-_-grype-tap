@@ -46,7 +46,8 @@ def known_for(plan_: plan.Plan) -> frozenset[str]:
 
 def context(plan_: plan.Plan, **kw) -> document.Context:
     known = kw.pop("known_ids", known_for(plan_))
-    return document.Context(scanner_id="scanner-0", field_names=FIELDS, known_ids=known, new_id=counter(), now=lambda: NOW, **kw)
+    edges = kw.pop("known_edge_ids", frozenset(plan_.delete_edges))
+    return document.Context(scanner_id="scanner-0", field_names=FIELDS, known_ids=known, known_edge_ids=edges, new_id=counter(), now=lambda: NOW, **kw)
 
 
 def targets_ctx(grid) -> dict[str, str]:
@@ -232,6 +233,14 @@ class TestGuardsOnWhatIsSentWhole(unittest.TestCase):
         with self.assertRaises(document.DocumentError):
             document.build_document(self.resolving, context(self.resolving, existing_nodes={"f-gone": extra}))
 
+    def test_a_plan_that_deletes_an_edge_the_run_never_read_is_refused(self) -> None:
+        plan_ = run(self.grid, one_document(self.doc, self.grid), findings=self.findings, vulnerabilities=self.vulns, coverage={g.target.id: f"cov-{g.target.id}" for g in self.grid})
+        read_edges = frozenset(plan_.delete_edges)
+        document.build_document(plan_, context(plan_, known_edge_ids=read_edges))  # every deletion was read: sent
+        poisoned = dataclasses.replace(plan_, delete_edges=[*plan_.delete_edges, "an-unrelated-edge"])
+        with self.assertRaises(document.DocumentError):
+            document.build_document(poisoned, context(poisoned, known_edge_ids=read_edges))
+
     def test_an_edge_to_an_id_this_run_never_read_is_refused(self) -> None:
         stranger = "00000000-0000-7000-8000-00000000ffff"
         for label, bad in (
@@ -255,7 +264,7 @@ class TestGuardsOnWhatIsSentWhole(unittest.TestCase):
             document.build_document(patched, context(patched, existing_nodes={"v-cve": node, "f-gone": self.read}))
 
     def test_a_context_that_does_not_say_what_the_fields_of_a_type_are_cannot_send_a_whole_node(self) -> None:
-        ctx = document.Context(scanner_id="s", field_names={}, known_ids=known_for(self.resolving), new_id=counter(), now=lambda: NOW, existing_nodes={"f-gone": self.read})
+        ctx = document.Context(scanner_id="s", field_names={}, known_ids=known_for(self.resolving), known_edge_ids=frozenset(), new_id=counter(), now=lambda: NOW, existing_nodes={"f-gone": self.read})
         with self.assertRaises(document.DocumentError):
             document.build_document(self.resolving, ctx)
 
@@ -301,7 +310,7 @@ class TestAgainstTheGriftSchema(unittest.TestCase):
         )
         for label, plan_, existing in cases:
             with self.subTest(label):
-                out = document.build_document(plan_, document.Context(scanner_id=scanner, field_names=FIELDS, known_ids=known_for(plan_), existing_nodes=existing, new_id=counter(), now=lambda: NOW))
+                out = document.build_document(plan_, document.Context(scanner_id=scanner, field_names=FIELDS, known_ids=known_for(plan_), known_edge_ids=frozenset(plan_.delete_edges), existing_nodes=existing, new_id=counter(), now=lambda: NOW))
                 jsonschema.validate(out, schema)
 
 
