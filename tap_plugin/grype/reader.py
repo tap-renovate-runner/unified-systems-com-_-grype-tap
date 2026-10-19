@@ -83,6 +83,15 @@ def read_node(entity_type: str, node_id: str) -> document.ExistingNode:
     return document.ExistingNode(entity.version, properties, dict(entity.dimensions), entity.name)
 
 
+def known_ids(
+    targets: Iterable[plan.GridTarget],
+    findings: Iterable[plan.ExistingFinding],
+    vulnerabilities: Iterable[plan.ExistingVulnerability],
+) -> frozenset[str]:
+    """The ids of every node this run read, for ``document.Context``: the only existing nodes an edge may name."""
+    return frozenset([t.target.id for t in targets] + [f.node_id for f in findings] + [v.node_id for v in vulnerabilities])
+
+
 def read_nodes(patches: plan.Plan) -> dict[str, document.ExistingNode]:
     """The nodes a plan patches, read whole, for ``document.Context``."""
     nodes: dict[str, document.ExistingNode] = {}

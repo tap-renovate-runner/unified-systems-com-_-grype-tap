@@ -151,17 +151,23 @@ class TestEndToEnd:
         rows = self.targets()
         grid_targets = [gt for gt, _ in rows]
         result = plan.DocumentResult("doc-0", tuple(gt.target.id for gt in grid_targets), self.doc)
+        findings, vulnerabilities = reader.read_existing_findings(), reader.read_existing_vulnerabilities()
         the_plan = plan.plan_scan(
             targets=grid_targets,
             results=[result],
-            existing_findings=reader.read_existing_findings(),
-            existing_vulnerabilities=reader.read_existing_vulnerabilities(),
+            existing_findings=findings,
+            existing_vulnerabilities=vulnerabilities,
             existing_coverage=reader.read_existing_coverage(gt.target.id for gt in grid_targets),
             run_key=run_key,
             observed_at=NOW,
             tool_version=VERSION,
         )
-        ctx = document.Context(scanner_id=str(self.scanner.id), field_names=reader.field_names(), existing_nodes=reader.read_nodes(the_plan))
+        ctx = document.Context(
+            scanner_id=str(self.scanner.id),
+            field_names=reader.field_names(),
+            known_ids=reader.known_ids(grid_targets, findings, vulnerabilities),
+            existing_nodes=reader.read_nodes(the_plan),
+        )
         return the_plan, document.build_document(the_plan, ctx)
 
     def vuln(self, vuln_id: str) -> Any:
@@ -233,7 +239,13 @@ class TestEndToEnd:
             existing_findings=[], existing_vulnerabilities=reader.read_existing_vulnerabilities(), existing_coverage={},
             run_key="run-conflict", observed_at=NOW, tool_version=VERSION,
         )
-        ctx = document.Context(scanner_id=str(self.scanner.id), field_names=reader.field_names(), existing_nodes=reader.read_nodes(the_plan))
+        vulnerabilities = reader.read_existing_vulnerabilities()
+        ctx = document.Context(
+            scanner_id=str(self.scanner.id),
+            field_names=reader.field_names(),
+            known_ids=reader.known_ids(grid_targets, [], vulnerabilities),
+            existing_nodes=reader.read_nodes(the_plan),
+        )
         built = document.build_document(the_plan, ctx)
         changed = patch_node(self.theirs.id, {"cvss_score": 9.0})  # someone else writes in between
         assert changed.success, changed.errors
