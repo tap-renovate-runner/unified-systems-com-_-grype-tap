@@ -354,8 +354,6 @@ def plan_scan(
     combined = _combined(parsed)
     db = combined.db if combined else None
     data_version = db.data_version if db else None
-    facts = vulnerability_facts(combined) if combined else {}
-    refs, canonical, mint_vulns, patch_vulns = _resolve_vulnerabilities(facts, existing_vulnerabilities, data_version)
 
     # Matches per target, from the documents that parsed.
     per_target: dict[str, list[Match]] = defaultdict(list)
@@ -384,33 +382,49 @@ def plan_scan(
     for finding in existing_findings:
         existing_by_target[finding.target_id][finding.key] = finding
 
+    # Which targets are accepted, and what the vulnerabilities are, depend on each other: a target is refused for an
+    # ambiguous vulnerability or an over-long key, and a vulnerability is derived from the matches of accepted targets
+    # alone. So resolve, refuse, and resolve again over what is left until no further target is refused. A refused
+    # target stays refused (the set only grows), so this ends, and it never lets a refused match shape a node.
+    refused: dict[str, str] = {}
+    while True:
+        live = [t for t in sorted(grid) if t not in refused]
+        accepted = [m for t in live for m in per_target.get(t, ())]
+        accepted_doc = Document(grype_version=combined.grype_version, db=db, matches=tuple(accepted)) if combined and accepted else None
+        facts = vulnerability_facts(accepted_doc) if accepted_doc else {}
+        refs, canonical, mint_vulns, patch_vulns = _resolve_vulnerabilities(facts, existing_vulnerabilities, data_version)
+        planned: dict[str, list[tuple[str, Any, Ref]]] = {}
+        newly: dict[str, str] = {}
+        for target_id in live:
+            gt = grid[target_id]
+            sub = Document(grype_version=combined.grype_version, db=db, matches=tuple(per_target.get(target_id, ()))) if combined else None
+            rows: list[tuple[str, Any, Ref]] = []
+            for fact in finding_facts(sub) if sub else []:
+                ref = refs.get(fact.key)
+                if ref is None:
+                    newly[target_id] = VULNERABILITY_AMBIGUOUS
+                    break
+                try:
+                    key = finding_key(canonical[fact.key], gt)
+                except PlanError:
+                    newly[target_id] = KEY_TOO_LONG
+                    break
+                rows.append((key, fact, ref))
+            planned[target_id] = rows
+        if not newly:
+            break
+        refused.update(newly)
+    for target_id, reason in refused.items():
+        outcomes[target_id] = (FAILED, reason)  # nothing about it is written, and nothing is resolved
+
     mint_findings: list[MintFinding] = []
     patch_findings: list[PatchFinding] = []
     reports: list[Report] = []
     delete_edges: list[str] = []
-    accepted: list[Match] = []  # the matches of targets that were not refused; vulnerability writes come from these alone
-    for target_id in sorted(grid):
+    for target_id in live:
         gt = grid[target_id]
         matched: set[str] = set()
-        blocked: str | None = None
-        planned: list[tuple[str, Any]] = []
-        sub = Document(grype_version=combined.grype_version, db=db, matches=tuple(per_target.get(target_id, ()))) if combined else None
-        for fact in finding_facts(sub) if sub else []:
-            ref = refs.get(fact.key)
-            if ref is None:
-                blocked = VULNERABILITY_AMBIGUOUS
-                break
-            try:
-                key = finding_key(canonical[fact.key], gt)
-            except PlanError:
-                blocked = KEY_TOO_LONG
-                break
-            planned.append((key, (fact, ref)))
-        if blocked:
-            outcomes[target_id] = (FAILED, blocked)
-            continue  # nothing about this target is written, and nothing is resolved
-        accepted.extend(per_target.get(target_id, ()))
-        for key, (fact, ref) in planned:
+        for key, fact, ref in planned[target_id]:
             matched.add(key)
             summary = _clip(f"Grype severity {fact.severity}; fix {fact.fix_state}", SUMMARY_LIMIT)
             current = existing_by_target[target_id].get(key)
@@ -445,16 +459,9 @@ def plan_scan(
                 if key not in matched and current.status == OPEN:
                     patch_findings.append(PatchFinding(current.node_id, {"status": RESOLVED}))
 
-    # Vulnerability writes: facts over the accepted matches only, resolved against the same existing nodes.
-    accepted_doc = Document(grype_version=combined.grype_version, db=db, matches=tuple(accepted)) if combined and accepted else None
-    _, _, mint_vulns, patch_vulns = _resolve_vulnerabilities(
-        vulnerability_facts(accepted_doc) if accepted_doc else {}, existing_vulnerabilities, data_version
-    )
-
     coverage = [Coverage(t, *outcomes[t]) for t in sorted(grid)]
     delete_edges.extend(existing_coverage[t] for t in sorted(grid) if t in existing_coverage)
 
-    # A finding for a target whose vulnerability was refused is never planned, so the vulnerability patches stand alone.
     scanned_all = all(o == SCANNED for o, _ in outcomes.values())
     if not parsed:
         outcome = "failed"

@@ -104,6 +104,8 @@ class TestFirstRun(unittest.TestCase):
         self.assertEqual(len(self.plan.reports), 91)
         self.assertEqual(len(self.plan.mint_vulnerabilities), 27)
         self.assertEqual((self.plan.patch_vulnerabilities, self.plan.patch_findings, self.plan.delete_edges, self.plan.unmapped), ([], [], [], []))
+        minted = {m.key for m in self.plan.mint_vulnerabilities}
+        self.assertEqual({f.vulnerability.value for f in self.plan.mint_findings}, minted)  # every reference is to a node the plan creates
 
     def test_a_finding_key_is_a_json_array_of_the_vulnerability_and_the_targets_natural_key(self) -> None:
         by_id = {g.target.id: g for g in self.grid}
@@ -305,6 +307,27 @@ class TestResolveOnlyWhatWasScanned(unittest.TestCase):
         result = run(grid, one_document(doc, grid), vulnerabilities=[held])
         patch = next(p for p in result.patch_vulnerabilities if p.node_id == "v-cve")
         self.assertEqual(patch.fields["record_url"], "https://example.test/from-the-accepted-target")
+
+    def test_a_finding_points_at_the_node_the_vulnerability_writes_make_even_when_a_refused_match_names_an_alias(self) -> None:
+        base = self.doc.matches[0]  # GHSA-jfh8-c2jp-5v3q with CVE-2021-44228 in relatedVulnerabilities
+        def at(purl: str, vuln_id: str, related: tuple[str, ...]):
+            art = dataclasses.replace(base.artifact, purl=purl, name=purl.split("/")[-1].split("@")[0], version="1")
+            return dataclasses.replace(base, artifact=art, vuln_id=vuln_id, related_ids=related)
+        def gt(purl: str, natural: tuple[str, ...], ident: str) -> plan.GridTarget:
+            return plan.GridTarget(targets.Target(ident, "package", natural[0], "1", "maven", purl), "computing_core__package", natural)
+        accepted = at("pkg:maven/a/accepted@1", "CVE-2021-44228", ())  # names the CVE alone
+        refused = at("pkg:maven/b/refused@1", "GHSA-jfh8-c2jp-5v3q", ("CVE-2021-44228",))  # would add the GHSA alias
+        grid = [gt("pkg:maven/a/accepted@1", ("accepted", "1"), "ok"), gt("pkg:maven/b/refused@1", ("x" * 600,), "refused")]
+        doc = dataclasses.replace(self.doc, matches=(accepted, refused))
+        only_ghsa = plan.ExistingVulnerability("v-ghsa", 1, "GHSA-jfh8-c2jp-5v3q", (), {})
+        result = run(grid, one_document(doc, grid), vulnerabilities=[only_ghsa])
+        minted = {m.key for m in result.mint_vulnerabilities}
+        for finding in result.mint_findings:
+            if finding.vulnerability.kind == "new":
+                self.assertIn(finding.vulnerability.value, minted)  # a reference to a node nothing creates would dangle
+            else:
+                self.assertEqual(finding.vulnerability.value, "v-ghsa")
+        self.assertEqual([p for p in result.patch_vulnerabilities if p.node_id == "v-ghsa"], [])  # the refused match's alias did not reach it
 
     def test_two_documents_sharing_a_label_are_refused(self) -> None:
         ids = tuple(g.target.id for g in self.grid)
