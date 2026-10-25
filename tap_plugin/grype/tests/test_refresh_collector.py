@@ -161,6 +161,25 @@ class TestSelfTest:
         assert not [c for c in result.checks if c.is_failure], result
         assert {c.code for c in result.checks} >= {"HOME_WRITABLE", "SETTINGS_VALID", "BINARY_PIN_VALID", "EGRESS_HOSTS"}
 
+    def test_the_probe_never_touches_a_file_an_operator_keeps_in_the_home(self, home, tmp_path) -> None:
+        home.mkdir(parents=True)
+        (home / ".self-test").write_text("an operator's file")
+        victim = tmp_path / "victim"
+        victim.write_text("keep me")
+        (home / ".self-test-link").symlink_to(victim)
+        result = mod.GrypeDatabaseRefreshCollector.self_test()
+        assert "HOME_WRITABLE" in {c.code for c in result.checks}
+        assert (home / ".self-test").read_text() == "an operator's file" and victim.read_text() == "keep me"
+        assert sorted(p.name for p in home.iterdir()) == [".self-test", ".self-test-link"]  # and it left nothing behind
+
+    def test_the_named_egress_hosts_are_the_ones_the_downloads_use(self) -> None:
+        from urllib.parse import urlparse
+
+        from tap_plugin.grype.binary_pin import load_pin
+
+        assert urlparse(load_pin().assets["linux/amd64"].url).hostname in mod.EGRESS_HOSTS  # the first hop
+        assert "release-assets.githubusercontent.com" in mod.EGRESS_HOSTS  # where GitHub sends the archive (traced 2026-10-25)
+
     def test_bad_settings_are_named(self, home) -> None:
         home.mkdir(parents=True)
         (home / "settings.json").write_text('{"nope": 1}')

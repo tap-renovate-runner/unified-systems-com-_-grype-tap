@@ -9,6 +9,8 @@ serving scans (``database.refresh`` stages and swaps).
 
 from __future__ import annotations
 
+import os
+import tempfile
 from datetime import UTC, datetime
 from typing import NoReturn
 
@@ -38,7 +40,10 @@ _SITE_STALE = "bcc1"
 _SITE_FINISHED = "a1a8"
 
 #: The hosts a refresh without a mirror reaches, named in the self-test so an operator can open egress for them.
-EGRESS_HOSTS = ("github.com", "objects.githubusercontent.com", "grype.anchore.io")
+#: Traced 2026-10-25 with `curl -I`: the pinned archive URL on github.com answers 302 to
+#: release-assets.githubusercontent.com; the database listing (`/databases/v6/latest.json`) and the database archive are
+#: both served by grype.anchore.io with no redirect (200).
+EGRESS_HOSTS = ("github.com", "release-assets.githubusercontent.com", "grype.anchore.io")
 
 
 class GrypeRefreshError(RuntimeError):
@@ -99,9 +104,11 @@ class GrypeDatabaseRefreshCollector(CollectorBase):
         home = resolve_home()
         try:
             home.mkdir(parents=True, exist_ok=True)
-            probe = home / ".self-test"
-            probe.write_text("ok")
-            probe.unlink()
+            # A randomly named file created exclusively, never a fixed name: a fixed one would overwrite and delete a
+            # file an operator keeps there, or write through a symlink planted at that name.
+            handle, probe = tempfile.mkstemp(prefix=".self-test-", dir=home)
+            os.close(handle)
+            os.unlink(probe)
             checks.append(check_pass("HOME_WRITABLE", f"{home} is writable."))
         except OSError as exc:
             checks.append(check_fail("HOME_UNWRITABLE", f"{home} is not writable: {exc}", readiness_status=CollectorReadinessStatus.MISCONFIGURED))
