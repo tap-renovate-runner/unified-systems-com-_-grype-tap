@@ -34,7 +34,7 @@ from tap_plugin.grype.database import RunResult
 from tap_plugin.grype.home import HOME_ENV
 from tap_plugin.grype.tests import recordings
 from tap_plugin.grype.tests.test_plan import parsed
-from tap_plugin.grype.tests.test_reader import make, package
+from tap_plugin.grype.tests.test_reader import package
 
 PACKAGE_DIR = Path(mod.__file__).parent.parent
 VERSION = recordings.VERSION

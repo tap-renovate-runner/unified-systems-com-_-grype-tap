@@ -10,9 +10,6 @@ database, submits the document through ``grift_import``, and checks what the gri
 
 from __future__ import annotations
 
-import dataclasses
-import itertools
-import uuid
 from datetime import UTC, datetime
 from typing import Any
 
