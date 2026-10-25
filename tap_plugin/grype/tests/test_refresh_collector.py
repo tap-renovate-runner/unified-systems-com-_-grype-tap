@@ -178,7 +178,8 @@ class TestSelfTest:
         from tap_plugin.grype.binary_pin import load_pin
 
         assert urlparse(load_pin().assets["linux/amd64"].url).hostname in mod.EGRESS_HOSTS  # the first hop
-        assert "release-assets.githubusercontent.com" in mod.EGRESS_HOSTS  # where GitHub sends the archive (traced 2026-10-25)
+        # GitHub sends the archive to release-assets.githubusercontent.com (traced 2026-10-25), and the database is served by Anchore.
+        assert set(mod.EGRESS_HOSTS) == {"github.com", "release-assets.githubusercontent.com", "grype.anchore.io"}
 
     def test_bad_settings_are_named(self, home) -> None:
         home.mkdir(parents=True)
