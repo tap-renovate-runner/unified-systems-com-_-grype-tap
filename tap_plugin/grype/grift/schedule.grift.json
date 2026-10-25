@@ -1,0 +1,62 @@
+{
+  "metadata": {
+    "grift_version": "0"
+  },
+  "_reserved": {},
+  "batches": [
+    {
+      "batch_entity": {
+        "entity_id": "01a17401-a519-76a2-9755-b3a77a149127",
+        "entity_type": "batch",
+        "name": "grype database refresh schedule",
+        "dimensions": {}
+      },
+      "batch_node": {
+        "source": "plugins.grype.grift.schedule",
+        "name": "grype database refresh schedule",
+        "description": "Seeds the tap_cares schedule that fires grype:database_refresh daily. See req-grype-database in specs/spec-grype-v0.md.",
+        "description_json": {
+          "format": "tap.grype.schedule-v0",
+          "data": {
+            "collector": "grype:database_refresh",
+            "cron": "17 2 * * *",
+            "cost_per_fire": "No credential and no grid reads. One fire places the pinned Grype binary if the home is empty (one download of the pinned release archive from GitHub releases, verified against the pin) and installs a newer advisory database build when Anchore has published one (a large download, about 3 GB on disk once unpacked: see req-grype-database). A fire that finds the installed build current installs nothing new."
+          }
+        }
+      },
+      "nodes": [
+        {
+          "entity": {
+            "entity_id": "01a17401-a545-77a0-88c5-f323a3ed0404",
+            "entity_type": "schedule",
+            "name": "grype database refresh",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "grype database refresh",
+            "description": "Refreshes the Grype advisory database, and places the pinned binary when the home is empty. Runs at 02:17, off the top of the hour and ahead of the scan. A refresh that cannot finish ends as a failed collection job naming why, and the installed database keeps serving scans. Disable or re-time this freely; Schedule is user-editable.",
+            "enabled": true,
+            "cron_expression": "17 2 * * *",
+            "max_active_runs": 1
+          }
+        }
+      ],
+      "edges": [
+        {
+          "entity": {
+            "entity_id": "01a17401-a56d-7652-8c92-1b3fbda89f08",
+            "entity_type": "edge",
+            "name": "SCHEDULED_TARGET",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a17401-a545-77a0-88c5-f323a3ed0404",
+            "to_entity_id": "89f1f539-eae6-5a95-82ac-74e99e1d4d3d",
+            "edge_type": "SCHEDULED_TARGET",
+            "properties": {}
+          }
+        }
+      ]
+    }
+  ]
+}
