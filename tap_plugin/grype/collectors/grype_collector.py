@@ -17,7 +17,7 @@ import re
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, NoReturn
 from uuid import uuid7
@@ -38,6 +38,8 @@ from tap_cares.collectors.readiness import (
     check_pass,
     check_warn,
 )
+from django.db.models import Q
+
 from tap_cares.exceptions import GriftRejectedError
 from tap_cares.models import CollectionJob, CollectionJobStatus
 
@@ -55,6 +57,7 @@ _SITE_UNMAPPED = "6e24"
 _SITE_NOT_CLEAN = "3e5d"
 _SITE_FINISHED = "3833"
 _SITE_KEPT_MOVING = "bc1a"
+_SITE_STALE_JOB = "bb8b"
 
 #: How many times a run re-reads the grid and starts over when another writer got there first.
 MAX_ATTEMPTS = 3
@@ -97,9 +100,40 @@ def retryable(codes: Sequence[str]) -> bool:
     return bool(codes) and all(code in RETRYABLE_CODES for code in codes)
 
 
-def other_running_job(own_job_id: Any) -> CollectionJob | None:
-    """Another collection job that is running now (Q25a, 2026-10-25), or ``None``."""
-    return CollectionJob.objects.filter(status=CollectionJobStatus.RUNNING.value).exclude(entity_id=own_job_id).first()
+#: A job still `RUNNING` this long after it started is a stuck row (a crash that never finalized), not a collection in
+#: progress. It does not block a scan, and the run says it ignored it, so one stuck row cannot silence the scanner for good.
+STALE_JOB_AFTER = timedelta(hours=6)
+
+
+def _running(own_job_id: Any) -> Any:
+    return CollectionJob.objects.filter(status=CollectionJobStatus.RUNNING.value).exclude(entity_id=own_job_id)
+
+
+def other_running_job(own_job_id: Any, now: datetime | None = None) -> CollectionJob | None:
+    """Another collection job that is running now (Q25a, 2026-10-25), or ``None``. A job running for over six hours is stuck, not running."""
+    cutoff = (now or datetime.now(UTC)) - STALE_JOB_AFTER
+    return _running(own_job_id).filter(Q(started_at__isnull=True) | Q(started_at__gte=cutoff)).first()
+
+
+def stale_running_jobs(own_job_id: Any, now: datetime | None = None) -> list[CollectionJob]:
+    """The `RUNNING` jobs older than ``STALE_JOB_AFTER``: ignored by the skip rule, and named by the run."""
+    cutoff = (now or datetime.now(UTC)) - STALE_JOB_AFTER
+    return list(_running(own_job_id).filter(started_at__lt=cutoff))
+
+
+def target_signature(rows: Sequence[tuple[plan.GridTarget, dict[str, Any]]], systems: dict[str, list[str | None]]) -> frozenset[tuple[Any, ...]]:
+    """What a scan was made from: each target's identity and facts, and the operating systems it is under."""
+    return frozenset(
+        (
+            grid_target.target.id,
+            grid_target.entity_type,
+            grid_target.natural_key,
+            grid_target.target.purl,
+            tuple(sorted(str(os_id) for os_id in systems.get(grid_target.target.id, [None]))),
+            repr(sorted((key, repr(value)) for key, value in props.items())),
+        )
+        for grid_target, props in rows
+    )
 
 
 class GrypeCollector(CollectorBase):
@@ -114,6 +148,13 @@ class GrypeCollector(CollectorBase):
             self.summary = f"Skipped: collection job {blocker.entity_id} is running; no scan was made and no run was written."
             self.record_warn(_SITE_SKIPPED, "SKIPPED_OTHER_JOB_RUNNING", self.summary, message_data={"job": str(blocker.entity_id)})
             return
+        for stuck in stale_running_jobs(self.config.collection_job_entity_id):
+            self.record_warn(
+                _SITE_STALE_JOB,
+                "STALE_RUNNING_JOB_IGNORED",
+                f"collection job {stuck.entity_id} has been RUNNING since {stuck.started_at}, over {STALE_JOB_AFTER}; it is stuck, not running, and does not block the scan.",
+                message_data={"job": str(stuck.entity_id)},
+            )
         home = resolve_home()
         try:
             settings = load_settings(home)
@@ -163,7 +204,9 @@ class GrypeCollector(CollectorBase):
             return self._submit(plan.plan_unscanned(outcome=verdict, run_key=run_key, observed_at=observed_at, tool_version=version), scanner_id)
 
         rows = reader.read_targets()
-        grouped = reader.documents_by_operating_system(rows, reader.read_operating_systems())
+        systems = reader.read_operating_systems()
+        scanned_from = target_signature(rows, systems)
+        grouped = reader.documents_by_operating_system(rows, systems)
         results: list[plan.DocumentResult] = []
         with scratch_dir(home, run_key) as scratch:
             for index, (os_id, members) in enumerate(sorted(grouped.items(), key=lambda item: item[0] or "")):
@@ -182,6 +225,11 @@ class GrypeCollector(CollectorBase):
                 results.append(plan.DocumentResult(label, target_ids, parsed))
 
         # The grid is read again after the scan, not before it, so the window in which it can move is as short as it can be.
+        # An inventory collector that started after the guard at the top of the run could have changed what was scanned: if
+        # the targets are not the ones the documents were made from, the results are not trusted and the run starts again.
+        after = target_signature(reader.read_targets(), reader.read_operating_systems())
+        if after != scanned_from:
+            return f"the packages or libraries on the grid changed while Grype was scanning ({len(after ^ scanned_from)} differ)"
         targets = [grid_target for grid_target, _ in rows]
         findings = reader.read_existing_findings()
         vulnerabilities = reader.read_existing_vulnerabilities()
@@ -204,13 +252,17 @@ class GrypeCollector(CollectorBase):
         findings: Sequence[plan.ExistingFinding] = (),
         vulnerabilities: Sequence[plan.ExistingVulnerability] = (),
     ) -> Landed | str:
-        ctx = document.Context(
-            scanner_id=scanner_id,
-            field_names=reader.field_names(),
-            known_ids=reader.known_ids(targets, findings, vulnerabilities),
-            existing_nodes=reader.read_nodes(planned),
-        )
-        result = self.submit_grift(document.build_document(planned, ctx), on_rejection="return")
+        try:
+            ctx = document.Context(
+                scanner_id=scanner_id,
+                field_names=reader.field_names(),
+                known_ids=reader.known_ids(targets, findings, vulnerabilities),
+                existing_nodes=reader.read_nodes(planned),
+            )
+            batch = document.build_document(planned, ctx)
+        except document.StaleNodeError as exc:  # a node moved between the plan and reading it whole: read and plan again
+            return str(exc)
+        result = self.submit_grift(batch, on_rejection="return")
         if result.errors:
             codes = [str(getattr(issue, "code", "?")) for issue in result.errors]
             detail = "; ".join(f"{getattr(issue, 'code', '?')}: {getattr(issue, 'message', '')}" for issue in result.errors[:5])

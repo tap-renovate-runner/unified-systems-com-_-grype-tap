@@ -34,7 +34,7 @@ from tap_plugin.grype.database import RunResult
 from tap_plugin.grype.home import HOME_ENV
 from tap_plugin.grype.tests import recordings
 from tap_plugin.grype.tests.test_plan import parsed
-from tap_plugin.grype.tests.test_reader import package
+from tap_plugin.grype.tests.test_reader import make, package
 
 PACKAGE_DIR = Path(mod.__file__).parent.parent
 VERSION = recordings.VERSION
@@ -47,8 +47,11 @@ def stamp(when: datetime) -> str:
 class FakeGrype:
     """Plays ``grype --version``, ``db status -o json`` and ``sbom:<file> -o json=<out>``."""
 
-    def __init__(self, recording: str, *, built: datetime | None = None, version: str = VERSION, scan_exit: int = 0) -> None:
+    def __init__(
+        self, recording: str, *, built: datetime | None = None, version: str = VERSION, scan_exit: int = 0, on_scan: Any = None
+    ) -> None:
         self.recording = recording
+        self.on_scan = on_scan  # called once, at the first scan: how a test changes the grid while Grype is scanning
         self.built = built or datetime.now(UTC) - timedelta(hours=6)
         self.version = version
         self.scan_exit = scan_exit
@@ -66,6 +69,9 @@ class FakeGrype:
             body = {"schemaVersion": "v6.1.10", "from": "https://grype.anchore.io/x", "built": stamp(self.built), "path": "/c/6/vulnerability.db", "valid": True}
             return RunResult(0, json.dumps(body), "")
         if argv[1].startswith("sbom:"):
+            if self.on_scan is not None:
+                hook, self.on_scan = self.on_scan, None
+                hook()
             if self.scan_exit:
                 return RunResult(self.scan_exit, "", "boom")
             Path(argv[3].removeprefix("json=")).write_text(self.recording, encoding="utf-8")
@@ -249,6 +255,20 @@ class TestGuards:
         assert str(other.entity_id) in job.summary and "SKIPPED_OTHER_JOB_RUNNING" in codes(job, "warn")
         assert self.fake.scans() == [] and runs().count() == 0
 
+    def test_a_job_stuck_running_for_hours_does_not_silence_the_scanner_and_is_named(self) -> None:
+        stuck = CollectionJob.objects.create(
+            name="stuck", description="x", status=CollectionJobStatus.RUNNING.value, started_at=datetime.now(UTC) - timedelta(hours=7)
+        )
+        job = collect()
+        assert job.status == CollectionJobStatus.SUCCESSFUL.value and job.summary.startswith("Run ok:")
+        assert "STALE_RUNNING_JOB_IGNORED" in codes(job, "warn") and str(stuck.entity_id) in json.dumps(job.results["warn"])
+        assert runs().count() == 1
+
+    def test_a_job_that_started_recently_still_blocks(self) -> None:
+        CollectionJob.objects.create(name="busy", description="x", status=CollectionJobStatus.RUNNING.value, started_at=datetime.now(UTC) - timedelta(minutes=30))
+        job = collect()
+        assert job.summary.startswith("Skipped:") and runs().count() == 0
+
     def test_the_job_itself_is_not_the_other_job(self) -> None:
         job = CollectionJob.objects.create(name="me", description="x", status=CollectionJobStatus.RUNNING.value)
         assert mod.other_running_job(job.entity_id) is None
@@ -295,6 +315,38 @@ class TestTheGridMoving:
         job = collect()
         assert job.status == CollectionJobStatus.FAILED.value and "GRIFT_BATCH_REJECTED" in codes(job, "error")
         assert len(attempts) == 1 and len(self.fake.scans()) == 1
+
+    def test_packages_that_change_while_grype_is_scanning_are_not_trusted_and_the_run_starts_again(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        added: list[Entity] = []
+        use(monkeypatch, FakeGrype(self.recording, on_scan=lambda: added.append(package("late", "1.0", "apk", "pkg:apk/wolfi/late@1.0"))))
+        job = collect()
+        assert job.status == CollectionJobStatus.SUCCESSFUL.value, (job.summary, job.results["error"])
+        assert "GRID_MOVED_RETRYING" in codes(job, "warn") and runs().count() == 1
+        (edge,) = Edge.objects.filter(edge_type=document.SCANNED, to_entity_id=added[0].id)
+        assert edge.properties["outcome"] == "scanned"  # the second attempt scanned the package that appeared
+
+    def test_a_node_that_moves_between_the_plan_and_reading_it_whole_is_read_and_planned_again(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from tap_grid.services import patch_node
+
+        theirs = make(
+            "compliance_core__compliance_vulnerability",
+            {"vuln_id": "CVE-2021-44228", "aliases": ["GHSA-jfh8-c2jp-5v3q"], "description": "theirs", "cvss_score": 10.0, "kev": False},
+        )
+        real = mod.reader.read_nodes
+        calls: list[int] = []
+
+        def moved(planned: Any) -> Any:
+            calls.append(1)
+            if len(calls) == 1:
+                assert patch_node(theirs.id, {"cvss_score": 9.0}).success  # after the plan was made, before the node is read whole
+            return real(planned)
+
+        monkeypatch.setattr(mod.reader, "read_nodes", moved)
+        job = collect()
+        assert job.status == CollectionJobStatus.SUCCESSFUL.value, (job.summary, job.results["error"])
+        assert len(calls) == 2 and "GRID_MOVED_RETRYING" in codes(job, "warn")
+        node = get_model_class(document.VULNERABILITY).objects.get(vuln_id="CVE-2021-44228")
+        assert node.cvss_score == 9.0 and node.kev is True  # their write stands; ours landed on top of it
 
     def test_which_refusals_are_worth_a_retry(self) -> None:
         assert mod.retryable(["entity_version_conflict"]) and mod.retryable(["entity_version_conflict", "entity_version_conflict"])

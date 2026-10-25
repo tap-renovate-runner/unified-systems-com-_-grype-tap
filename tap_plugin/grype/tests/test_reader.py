@@ -210,6 +210,23 @@ class TestEndToEnd:
             assert sorted(runs[str(c.from_entity_id)] for c in coverage) == ["run-1", "run-2"]  # history stays; the latest is read by the run's time
             assert all(c.properties == {"outcome": "scanned"} for c in coverage)
 
+    def test_the_current_coverage_of_a_target_is_the_latest_run_of_this_scanner_and_nobody_elses(self) -> None:
+        self.run_once("run-1")
+        later = datetime(2026, 10, 19, 5, 43, tzinfo=UTC)
+        target = next(iter(self.packages.values()))
+        first = reader.read_latest_coverage([target.id])[str(target.id)]
+        assert first.outcome == "scanned" and first.observed_at == NOW
+        # A later run of ours, and a still later run of ANOTHER scanner's source that also examined the target.
+        mine = make("compliance_core__compliance_scan_run", {"source": "grype", "run_key": "run-2", "category": "grype-grid", "outcome": "ok", "observed_at": later.isoformat()})
+        link(mine, target, document.SCANNED, outcome="not-scanned", reason="document-failed")
+        older = make("compliance_core__compliance_scan_run", {"source": "grype", "run_key": "run-0", "category": "grype-grid", "outcome": "ok", "observed_at": datetime(2026, 10, 18, tzinfo=UTC).isoformat()})
+        link(older, target, document.SCANNED, outcome="failed", reason="finding-key-too-long")  # inserted last but observed first: order of arrival must not matter
+        theirs = make("compliance_core__compliance_scan_run", {"source": "trivy", "run_key": "t-1", "category": "x", "outcome": "ok", "observed_at": datetime(2026, 10, 20, tzinfo=UTC).isoformat()})
+        link(theirs, target, document.SCANNED, outcome="scanned")
+        current = reader.read_latest_coverage([target.id])[str(target.id)]
+        assert (current.run_id, current.outcome, current.reason, current.observed_at) == (str(mine.id), "not-scanned", "document-failed", later)
+        assert reader.read_latest_coverage([]) == {}
+
     def test_two_first_runs_planned_from_the_same_empty_snapshot_cannot_leave_two_nodes_for_one_finding(self) -> None:
         _, first = self.prepare("run-a")
         _, second = self.prepare("run-b")  # planned before run-a was written, so it mints the same findings again

@@ -62,6 +62,10 @@ class DocumentError(ValueError):
     """The plan names something the document cannot be built from."""
 
 
+class StaleNodeError(DocumentError):
+    """A node the plan patches was written after the plan was made: the grid moved, so the run reads and plans again."""
+
+
 @dataclass(frozen=True)
 class ExistingNode:
     """A node as the grid last held it: everything needed to send it back with only some fields changed."""
@@ -110,7 +114,7 @@ def _overlay(
     if existing is None:
         raise DocumentError(f"the plan patches node {node_id!r}, which was not read; it will not be sent from memory")
     if existing.version != planned_version:
-        raise DocumentError(f"node {node_id!r} was planned at version {planned_version} but read at {existing.version}")
+        raise StaleNodeError(f"node {node_id!r} was planned at version {planned_version} but read at {existing.version}")
     foreign = sorted(set(fields) - OWNED_FIELDS[entity_type])
     if foreign:
         raise DocumentError(f"the plan patches {foreign} on {node_id!r}, which are not fields this plugin owns")

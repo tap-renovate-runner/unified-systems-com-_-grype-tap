@@ -14,11 +14,13 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
-from datetime import date, datetime
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from typing import Any
 
 from tap_grid.models import Edge, Entity
 from tap_plugin.compliance_core.models.compliance_finding import ComplianceFinding
+from tap_plugin.compliance_core.models.compliance_scan_run import ComplianceScanRun
 from tap_plugin.compliance_core.models.compliance_scanner import ComplianceScanner
 from tap_plugin.compliance_core.models.compliance_vulnerability import ComplianceVulnerability
 from tap_plugin.computing_core.models.library import Library
@@ -60,6 +62,9 @@ def _json(value: Any) -> Any:
     if isinstance(value, date):
         return value.isoformat()
     return value
+
+
+_NEVER = datetime.min.replace(tzinfo=UTC)
 
 
 def read_node(entity_type: str, node_id: str) -> document.ExistingNode:
@@ -182,6 +187,39 @@ def read_existing_vulnerabilities() -> list[plan.ExistingVulnerability]:
         )
         for row in rows
     ]
+
+
+@dataclass(frozen=True)
+class LatestCoverage:
+    """A target's current coverage by this scanner: the edge from the latest run (by ``observed_at``) that examined it."""
+
+    run_id: str
+    observed_at: datetime | None
+    outcome: str
+    reason: str | None
+
+
+def read_latest_coverage(target_ids: Iterable[str]) -> dict[str, LatestCoverage]:
+    """Each target's current coverage by this scanner's runs.
+
+    A run adds one ``SCANNED_COMPLIANCE_TARGET`` edge per target and nothing is ever deleted (a collector holds no
+    delete capability), so a target has one edge per run that examined it and the current one is the latest run's.
+    Another scanner's edge to the same target is never ours: only runs of source ``grype`` are read.
+    """
+    ids = [str(i) for i in target_ids]
+    if not ids:
+        return {}
+    runs = {str(r.entity_id): r for r in ComplianceScanRun.objects.filter(source=plan.SOURCE)}
+    latest: dict[str, LatestCoverage] = {}
+    for run, target, properties in Edge.objects.filter(edge_type=document.SCANNED, to_entity_id__in=ids, from_entity_id__in=list(runs)).values_list(
+        "from_entity_id", "to_entity_id", "properties"
+    ):
+        run_row = runs[str(run)]
+        seen = run_row.observed_at
+        current = latest.get(str(target))
+        if current is None or (seen or _NEVER) > (current.observed_at or _NEVER):
+            latest[str(target)] = LatestCoverage(str(run), seen, properties.get("outcome", ""), properties.get("reason"))
+    return latest
 
 
 def documents_by_operating_system(
