@@ -280,7 +280,7 @@ class TestAgainstTheGriftSchema(unittest.TestCase):
         grid = grid_targets(doc)
         first = run(grid, one_document(doc, grid))
         findings, vulns = as_existing(first, grid)
-        second = run(grid, one_document(doc, grid), findings=findings, vulnerabilities=vulns, coverage={g.target.id: f"00000000-0000-7000-8000-{n:012d}" for n, g in enumerate(grid, 100)})
+        second = run(grid, one_document(doc, grid), findings=findings, vulnerabilities=vulns)
         # A run that patches existing nodes whole: a vulnerability another source wrote, and a finding that stopped matching.
         theirs = plan.ExistingVulnerability("00000000-0000-7000-8000-0000000000b1", 4, "CVE-2021-44228", ("GHSA-jfh8-c2jp-5v3q",), {"kev": False})
         gone = plan.ExistingFinding('["CVE-0000-0001","computing_core__library","x","1"]', "00000000-0000-7000-8000-0000000000b2", grid[0].target.id, plan.OPEN, "x", 2)
