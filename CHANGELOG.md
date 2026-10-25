@@ -1,0 +1,76 @@
+# Changelog
+
+## 0.1.0 (2026-10-25)
+
+
+### Features
+
+* **binary:** the pinned Grype release, its installer, pin tool and Renovate manager [via grype-tap] ([62dfaa1](https://github.com/unified-systems-com/grype-tap/commit/62dfaa12ed5bbb06c01e8f829e257c9bbaaed627))
+* **binary:** the pinned Grype release, its installer, settings, pin tool and Renovate manager ([e60c543](https://github.com/unified-systems-com/grype-tap/commit/e60c5434dfb22671528bf6636e7e9582c79198f1))
+* **collector:** Grype output parser, derived facts, target mapping and scan invocation [via grype-tap] ([6c67e9e](https://github.com/unified-systems-com/grype-tap/commit/6c67e9e0290e3935e9f37ea5dd6815aa9d901b4f))
+* **collector:** the Grype output parser, derived facts, target mapping and scan invocation ([6f76d67](https://github.com/unified-systems-com/grype-tap/commit/6f76d67e5f2de40c135faaf7853852d3a5336d04))
+* **database:** layout, age rule, lock, mirror and atomic refresh for the Grype database [via grype-tap] ([c5ea914](https://github.com/unified-systems-com/grype-tap/commit/c5ea91405357f10ed33beb8a8662d7924be846b3))
+* **database:** the Grype database layout, age rule, lock, mirror selection and atomic refresh ([36ef4a3](https://github.com/unified-systems-com/grype-tap/commit/36ef4a3a38fd781ab317b42194e3488744da7012))
+* read the grid into the planner and prove the write path on a database ([a303d33](https://github.com/unified-systems-com/grype-tap/commit/a303d3386e8895c61c791091d3f27218ce0ce0fd))
+* read the grid into the planner and prove the write path on a database [via grype-tap] ([50572ae](https://github.com/unified-systems-com/grype-tap/commit/50572aecd57d5a4fea6646f1d236a9e5705e0483))
+* scaffold the grype plugin from the approved spec ([905477c](https://github.com/unified-systems-com/grype-tap/commit/905477cd4d3da8317f3d1100c807bc9d3d522f04))
+* scaffold the grype plugin from the approved spec [via grype-tap] ([6d79574](https://github.com/unified-systems-com/grype-tap/commit/6d795742816c0cf7e88b0351bd72718d1341a254))
+* the GRIFT document of one run ([f0528d4](https://github.com/unified-systems-com/grype-tap/commit/f0528d41769dbbd53e6576fdffea9a4695ed1a3a))
+* the GRIFT document of one run [via grype-tap] ([3c44478](https://github.com/unified-systems-com/grype-tap/commit/3c444782d36caddbcae5b15d4fa5d5725b541b31))
+* the plan of one run, as pure data ([0b6aa8c](https://github.com/unified-systems-com/grype-tap/commit/0b6aa8c44000b90f0d8a45c742819b5b70cb1325))
+* the plan of one run, as pure data [via grype-tap] ([f5fbe52](https://github.com/unified-systems-com/grype-tap/commit/f5fbe5269e049e6b24af075b084803e06611175d))
+* the reader reports the edge ids it read as the ones a run replaces ([373bb9a](https://github.com/unified-systems-com/grype-tap/commit/373bb9a684002b449849ba996cb37bf114d488cd))
+* the reader reports the ids it read, for the document's endpoint check ([f111d55](https://github.com/unified-systems-com/grype-tap/commit/f111d55800e2044bef31c8d2a61f29d2b0d6eebf))
+
+
+### Bug Fixes
+
+* a run may only delete edges it read as the ones it replaces ([95adba9](https://github.com/unified-systems-com/grype-tap/commit/95adba928057b31edfe1d6da6d1f1bffa5d62894))
+* a scratch directory already removed is not a cleanup failure ([bdc22b6](https://github.com/unified-systems-com/grype-tap/commit/bdc22b6aad52d075e3f5a23bdd42372969456e1a))
+* a scratch directory already removed is not a cleanup failure [via grype-tap] ([a09bbc2](https://github.com/unified-systems-com/grype-tap/commit/a09bbc20422cd641a9ab7c5e8e4e12380d7605e7))
+* an edge may only name a node this run created or read ([f13088c](https://github.com/unified-systems-com/grype-tap/commit/f13088c9ec76fedd35555b7391c78bbb1d97a6a0))
+* **binary:** a binary already installed is trusted only when it matches the pin ([40e5505](https://github.com/unified-systems-com/grype-tap/commit/40e55051e4554eb4ff1e013bbd0ac9689ed9a99d))
+* **binary:** bound the grype member's size for the pin tool as well as the installer ([c08ba98](https://github.com/unified-systems-com/grype-tap/commit/c08ba982e6a4526fc82bf4330e671f0d0f7df702))
+* check the scratch directory with lstat, so only a real absence is forgiven ([3683dd8](https://github.com/unified-systems-com/grype-tap/commit/3683dd8238bae48af886c58e1dc23993531aac79))
+* **collector:** a delimiter with nothing after it is a malformed purl, not an absent section ([38fb709](https://github.com/unified-systems-com/grype-tap/commit/38fb709088399ff267f95d947dc1dc8f3dbc8a02))
+* **collector:** a string that cannot be encoded is a malformed purl, not an exception ([c3c8a98](https://github.com/unified-systems-com/grype-tap/commit/c3c8a9885026f2e36750cef5605cb84294f109de))
+* **collector:** decode percent escapes strictly so distinct malformed purls cannot alias ([14c9713](https://github.com/unified-systems-com/grype-tap/commit/14c97134f04c2f4542a9d2ef4e26dda1a21a8ede))
+* **collector:** purl subpath is identity, findings collapse on the canonical purl, recordings admit no trailing bytes ([25ea699](https://github.com/unified-systems-com/grype-tap/commit/25ea699f52a17e8510d2401c89579ba738619e44))
+* **collector:** refuse malformed purl parts instead of repairing them; report a failed scratch cleanup ([6a053b2](https://github.com/unified-systems-com/grype-tap/commit/6a053b246ef864b7d23788f1ec696449e5fc5712))
+* **collector:** refuse malformed purl parts, report a failed scratch cleanup [via grype-tap] ([a910d5f](https://github.com/unified-systems-com/grype-tap/commit/a910d5f413d0212daffd06d9a89c42a767a9e915))
+* **collector:** strict purl canonicalisation, and recordings verified against their manifest ([1e796f1](https://github.com/unified-systems-com/grype-tap/commit/1e796f12099a08274d95244d8ac03b2bd1cda0fb))
+* **collector:** validate the purl delimiter grammar first, so no raw delimiter is absorbed by the encoder ([547773d](https://github.com/unified-systems-com/grype-tap/commit/547773dd5e9c98f3ca66635e4ebf4476ad58c1a3))
+* **database:** fail closed on a failed status, allowlist the schema version, chunk the hash, tell the truth about a prune failure ([5f8d9a4](https://github.com/unified-systems-com/grype-tap/commit/5f8d9a4409d3e54591de157fcc36216227186f9d))
+* forgive a missing-file error only when the scratch directory is truly gone ([6f8e584](https://github.com/unified-systems-com/grype-tap/commit/6f8e584a8c1e040e00c52c777bf271691c3c5ef7))
+* pin compliance_core v0.7.0, pin self by commit, refresh the record digest ([df4e937](https://github.com/unified-systems-com/grype-tap/commit/df4e937c63823bfb24976da81fd138e388cd1bd1))
+* pin computing_core v0.8.0, which carries the SBOM builder ([3ef54c2](https://github.com/unified-systems-com/grype-tap/commit/3ef54c2219a6331b057998a241abb29c22a94f34))
+* refuse a node read with fields its type does not declare, and validate patched nodes against the schema ([6b34718](https://github.com/unified-systems-com/grype-tap/commit/6b347188900c9d8b8b9b068a92459eac5d30386f))
+* refuse a stale finding patch, a foreign field and a thin read before a node is sent whole ([dd989c2](https://github.com/unified-systems-com/grype-tap/commit/dd989c254482c534b7125abcdf738c30acb1aeab))
+* refuse a vulnerability that two existing nodes claim, exact id or not ([c2f0b47](https://github.com/unified-systems-com/grype-tap/commit/c2f0b470583bb1d20d106322543b6441d4838918))
+* **release:** let release-please bump the ci record's self pin ([#20](https://github.com/unified-systems-com/grype-tap/issues/20)) ([968ecac](https://github.com/unified-systems-com/grype-tap/commit/968ecacf9fc96f2cf491c0dd577ed21c987874ff))
+* resolve vulnerabilities over the matches of accepted targets before planning findings ([a86f851](https://github.com/unified-systems-com/grype-tap/commit/a86f851181446da87b1f11398488e2542870f801))
+* strict deletes, so a run planned from a stale snapshot is refused ([6148e75](https://github.com/unified-systems-com/grype-tap/commit/6148e7554c3a7b9898311466056a8d2ad4581dd4))
+* unmapped matches stop resolution in their document, and a finding keeps its key ([ba406b6](https://github.com/unified-systems-com/grype-tap/commit/ba406b61755e36583ed987dd9bd3c46f0d2ba96c))
+* vulnerability facts come from accepted matches only; document labels must be unique ([3dfd129](https://github.com/unified-systems-com/grype-tap/commit/3dfd129dbd081645a8599a24306dc44655c665a6))
+* write a vulnerability only when an accepted finding points at it ([37f181c](https://github.com/unified-systems-com/grype-tap/commit/37f181c48785d0ecb899f5239a2eafe4a3ff1e5e))
+
+
+### Documentation
+
+* **readme:** exact steps to stand up the dev session, with the two failures [via grype-tap] ([75c39a1](https://github.com/unified-systems-com/grype-tap/commit/75c39a1f11ba4cf0cd0fec10120c961e38b17dc0))
+* **readme:** say to name your own branch when testing one, not main ([8469566](https://github.com/unified-systems-com/grype-tap/commit/84695660a38899968cb0939fb0ba83e4103925fc))
+* **readme:** the exact steps to stand up the dev session, including the two things that fail ([6c5dae0](https://github.com/unified-systems-com/grype-tap/commit/6c5dae0a9eb2a2f8566c5cc2fd87516ccc1a9ca4))
+* **spec:** answer the AI review: mixed documents, mirror trust, coverage scope, bump check ([01e93de](https://github.com/unified-systems-com/grype-tap/commit/01e93dec84ac64ab9e9d4b34ac0c27b12adf5fd6))
+* **spec:** backlog the binary sandbox, fail closed ([c9d9b4c](https://github.com/unified-systems-com/grype-tap/commit/c9d9b4ca2e3f6cb2d66f225143fb564267a62674))
+* **spec:** close three more review findings: key encoding, archive extraction, nightly skip ([01fa646](https://github.com/unified-systems-com/grype-tap/commit/01fa646681879e5e4ebea18c06233d311c572562))
+* **spec:** database archive size and why it cannot be scoped to our packages [via grype-tap] ([878ccfa](https://github.com/unified-systems-com/grype-tap/commit/878ccfae25fbf23a5d65993ca7dc8cda042abdc7))
+* **spec:** grype plugin specification, v0 ([728de3f](https://github.com/unified-systems-com/grype-tap/commit/728de3fca0e427a6b4a75952fab3e2aacc0b1556))
+* **spec:** grype plugin specification, v0 [via grype-tap] ([5427340](https://github.com/unified-systems-com/grype-tap/commit/5427340b58be6321bfec3f4fc6c6b39144e46636))
+* **spec:** say plainly which build times are compared ([624dd9e](https://github.com/unified-systems-com/grype-tap/commit/624dd9e4fb2365997da73e096b69d9cd21aacba9))
+* **spec:** surface the Grype pin to Renovate ([162256a](https://github.com/unified-systems-com/grype-tap/commit/162256aa392318ba423b6af774edb8bfc9873d6d))
+* **spec:** surface the Grype pin to Renovate [via grype-tap] ([472bffe](https://github.com/unified-systems-com/grype-tap/commit/472bffed728184e7f71e9a7143db3e471d40f631))
+* **spec:** the builder accepts no operating system [via grype-tap] ([32dfad4](https://github.com/unified-systems-com/grype-tap/commit/32dfad48207926509e918d4a0bcf0d5c4d635a10))
+* **spec:** the builder accepts no operating system; record its real signature ([1ac2bee](https://github.com/unified-systems-com/grype-tap/commit/1ac2beea7d092c432144004e2817d81946a3d040))
+* **spec:** the database archive is about three times the launch figure, and cannot be scoped to our packages ([c1bbdee](https://github.com/unified-systems-com/grype-tap/commit/c1bbdee4fed3a478770474d828a1aaeb2a462223))
+* **spec:** the natural-key mapping tier is for packages; a library is found by canonical purl ([5427767](https://github.com/unified-systems-com/grype-tap/commit/5427767316199519f46f398138f00b7a71fb8bc2))
+* **spec:** third review round: pinned database build, operator-only settings, KEV basis ([5c2c32b](https://github.com/unified-systems-com/grype-tap/commit/5c2c32b40eb287eb1b668b28f5e15387cc9f821b))
