@@ -17,7 +17,7 @@ import re
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NoReturn
 from uuid import uuid7
@@ -38,8 +38,6 @@ from tap_cares.collectors.readiness import (
     check_pass,
     check_warn,
 )
-from django.db.models import Q
-
 from tap_cares.exceptions import GriftRejectedError
 from tap_cares.models import CollectionJob, CollectionJobStatus
 
@@ -57,7 +55,6 @@ _SITE_UNMAPPED = "6e24"
 _SITE_NOT_CLEAN = "3e5d"
 _SITE_FINISHED = "3833"
 _SITE_KEPT_MOVING = "bc1a"
-_SITE_STALE_JOB = "bb8b"
 
 #: How many times a run re-reads the grid and starts over when another writer got there first.
 MAX_ATTEMPTS = 3
@@ -100,31 +97,29 @@ def retryable(codes: Sequence[str]) -> bool:
     return bool(codes) and all(code in RETRYABLE_CODES for code in codes)
 
 
-#: A job still `RUNNING` this long after it started is a stuck row (a crash that never finalized), not a collection in
-#: progress. It does not block a scan, and the run says it ignored it, so one stuck row cannot silence the scanner for good.
-STALE_JOB_AFTER = timedelta(hours=6)
+def other_running_job(own_job_id: Any) -> CollectionJob | None:
+    """Another collection job that is running now (Q25a, 2026-10-25), or ``None``.
+
+    Status alone decides, however long the row has been running. A row left `RUNNING` by a dead worker is core's to
+    finalize (`tap_cares.services.reaper` reaps a `RUNNING` job with no live claim); this plugin does not second-guess it
+    with an age of its own, because an age would let a scan run beside a genuinely long inventory collection.
+    """
+    return CollectionJob.objects.filter(status=CollectionJobStatus.RUNNING.value).exclude(entity_id=own_job_id).first()
 
 
-def _running(own_job_id: Any) -> Any:
-    return CollectionJob.objects.filter(status=CollectionJobStatus.RUNNING.value).exclude(entity_id=own_job_id)
-
-
-def other_running_job(own_job_id: Any, now: datetime | None = None) -> CollectionJob | None:
-    """Another collection job that is running now (Q25a, 2026-10-25), or ``None``. A job running for over six hours is stuck, not running."""
-    cutoff = (now or datetime.now(UTC)) - STALE_JOB_AFTER
-    return _running(own_job_id).filter(Q(started_at__isnull=True) | Q(started_at__gte=cutoff)).first()
-
-
-def stale_running_jobs(own_job_id: Any, now: datetime | None = None) -> list[CollectionJob]:
-    """The `RUNNING` jobs older than ``STALE_JOB_AFTER``: ignored by the skip rule, and named by the run."""
-    cutoff = (now or datetime.now(UTC)) - STALE_JOB_AFTER
-    return list(_running(own_job_id).filter(started_at__lt=cutoff))
-
-
-def target_signature(rows: Sequence[tuple[plan.GridTarget, dict[str, Any]]], systems: dict[str, list[str | None]]) -> frozenset[tuple[Any, ...]]:
-    """What a scan was made from: each target's identity and facts, and the operating systems it is under."""
+def target_signature(
+    rows: Sequence[tuple[plan.GridTarget, dict[str, Any]]],
+    systems: dict[str, list[str | None]],
+    operating_systems: dict[str, dict[str, Any]],
+) -> frozenset[tuple[Any, ...]]:
+    """What a scan was made from: each target's identity and facts, the operating systems it is under, and their properties."""
     return frozenset(
-        (
+        [
+            ("operating_system", os_id, repr(sorted((key, repr(value)) for key, value in props.items())))
+            for os_id, props in operating_systems.items()
+        ]
+        + [
+            (
             grid_target.target.id,
             grid_target.entity_type,
             grid_target.natural_key,
@@ -133,6 +128,7 @@ def target_signature(rows: Sequence[tuple[plan.GridTarget, dict[str, Any]]], sys
             repr(sorted((key, repr(value)) for key, value in props.items())),
         )
         for grid_target, props in rows
+        ]
     )
 
 
@@ -148,13 +144,6 @@ class GrypeCollector(CollectorBase):
             self.summary = f"Skipped: collection job {blocker.entity_id} is running; no scan was made and no run was written."
             self.record_warn(_SITE_SKIPPED, "SKIPPED_OTHER_JOB_RUNNING", self.summary, message_data={"job": str(blocker.entity_id)})
             return
-        for stuck in stale_running_jobs(self.config.collection_job_entity_id):
-            self.record_warn(
-                _SITE_STALE_JOB,
-                "STALE_RUNNING_JOB_IGNORED",
-                f"collection job {stuck.entity_id} has been RUNNING since {stuck.started_at}, over {STALE_JOB_AFTER}; it is stuck, not running, and does not block the scan.",
-                message_data={"job": str(stuck.entity_id)},
-            )
         home = resolve_home()
         try:
             settings = load_settings(home)
@@ -205,8 +194,11 @@ class GrypeCollector(CollectorBase):
 
         rows = reader.read_targets()
         systems = reader.read_operating_systems()
-        scanned_from = target_signature(rows, systems)
         grouped = reader.documents_by_operating_system(rows, systems)
+        # Read once, used to build the documents and compared after the scan: an operating system's properties go into
+        # the SBOM, so a change to one is a change to what was scanned.
+        os_props = {os_id: reader.read_operating_system(os_id) for os_id in grouped if os_id}
+        scanned_from = target_signature(rows, systems, os_props)
         results: list[plan.DocumentResult] = []
         with scratch_dir(home, run_key) as scratch:
             for index, (os_id, members) in enumerate(sorted(grouped.items(), key=lambda item: item[0] or "")):
@@ -215,7 +207,7 @@ class GrypeCollector(CollectorBase):
                 sbom = build_cyclonedx(
                     [props for grid_target, props in members if grid_target.target.kind == "package"],
                     [props for grid_target, props in members if grid_target.target.kind == "library"],
-                    reader.read_operating_system(os_id) if os_id else None,
+                    os_props[os_id] if os_id else None,
                 )
                 try:
                     parsed = scan_document(binary, db_dir, sbom, scratch, expected_version=version, index=index, run=self.runner)
@@ -227,7 +219,7 @@ class GrypeCollector(CollectorBase):
         # The grid is read again after the scan, not before it, so the window in which it can move is as short as it can be.
         # An inventory collector that started after the guard at the top of the run could have changed what was scanned: if
         # the targets are not the ones the documents were made from, the results are not trusted and the run starts again.
-        after = target_signature(reader.read_targets(), reader.read_operating_systems())
+        after = target_signature(reader.read_targets(), reader.read_operating_systems(), {os_id: reader.read_operating_system(os_id) for os_id in os_props})
         if after != scanned_from:
             return f"the packages or libraries on the grid changed while Grype was scanning ({len(after ^ scanned_from)} differ)"
         targets = [grid_target for grid_target, _ in rows]

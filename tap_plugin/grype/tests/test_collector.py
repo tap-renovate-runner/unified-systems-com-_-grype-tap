@@ -34,7 +34,7 @@ from tap_plugin.grype.database import RunResult
 from tap_plugin.grype.home import HOME_ENV
 from tap_plugin.grype.tests import recordings
 from tap_plugin.grype.tests.test_plan import parsed
-from tap_plugin.grype.tests.test_reader import make, package
+from tap_plugin.grype.tests.test_reader import link, make, package
 
 PACKAGE_DIR = Path(mod.__file__).parent.parent
 VERSION = recordings.VERSION
@@ -255,19 +255,16 @@ class TestGuards:
         assert str(other.entity_id) in job.summary and "SKIPPED_OTHER_JOB_RUNNING" in codes(job, "warn")
         assert self.fake.scans() == [] and runs().count() == 0
 
-    def test_a_job_stuck_running_for_hours_does_not_silence_the_scanner_and_is_named(self) -> None:
-        stuck = CollectionJob.objects.create(
-            name="stuck", description="x", status=CollectionJobStatus.RUNNING.value, started_at=datetime.now(UTC) - timedelta(hours=7)
+    def test_a_running_job_blocks_however_long_it_has_been_running_because_core_reaps_the_dead_ones(self) -> None:
+        old = CollectionJob.objects.create(
+            name="old", description="x", status=CollectionJobStatus.RUNNING.value, started_at=datetime.now(UTC) - timedelta(hours=9)
         )
         job = collect()
-        assert job.status == CollectionJobStatus.SUCCESSFUL.value and job.summary.startswith("Run ok:")
-        assert "STALE_RUNNING_JOB_IGNORED" in codes(job, "warn") and str(stuck.entity_id) in json.dumps(job.results["warn"])
-        assert runs().count() == 1
+        assert job.summary.startswith("Skipped:") and str(old.entity_id) in job.summary and runs().count() == 0
 
-    def test_a_job_that_started_recently_still_blocks(self) -> None:
-        CollectionJob.objects.create(name="busy", description="x", status=CollectionJobStatus.RUNNING.value, started_at=datetime.now(UTC) - timedelta(minutes=30))
-        job = collect()
-        assert job.summary.startswith("Skipped:") and runs().count() == 0
+    def test_a_running_job_that_never_stamped_a_start_time_blocks_too(self) -> None:
+        CollectionJob.objects.create(name="unstarted", description="x", status=CollectionJobStatus.RUNNING.value)
+        assert collect().summary.startswith("Skipped:")
 
     def test_the_job_itself_is_not_the_other_job(self) -> None:
         job = CollectionJob.objects.create(name="me", description="x", status=CollectionJobStatus.RUNNING.value)
@@ -324,6 +321,19 @@ class TestTheGridMoving:
         assert "GRID_MOVED_RETRYING" in codes(job, "warn") and runs().count() == 1
         (edge,) = Edge.objects.filter(edge_type=document.SCANNED, to_entity_id=added[0].id)
         assert edge.properties["outcome"] == "scanned"  # the second attempt scanned the package that appeared
+
+    def test_an_operating_system_that_changes_while_grype_is_scanning_is_not_trusted_either(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from tap_grid.services import patch_node
+
+        os_node = make("computing_core__operating_system", {"os_id": "wolfi", "version_id": "", "build_id": "rolling", "name": "Wolfi"})
+        host = make("computing_core__host", {"realm": "test", "stable_id": "h1"})
+        link(host, os_node, "RUNS_OPERATING_SYSTEM__computing_core")
+        for entity in self.packages.values():
+            link(host, entity, "INSTALLS_PACKAGE__computing_core")
+        use(monkeypatch, FakeGrype(self.recording, on_scan=lambda: patch_node(os_node.id, {"name": "Wolfi (renamed)"})))
+        job = collect()
+        assert job.status == CollectionJobStatus.SUCCESSFUL.value, (job.summary, job.results["error"])
+        assert "GRID_MOVED_RETRYING" in codes(job, "warn") and runs().count() == 1  # only the association was unchanged
 
     def test_a_node_that_moves_between_the_plan_and_reading_it_whole_is_read_and_planned_again(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from tap_grid.services import patch_node
