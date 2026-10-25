@@ -39,11 +39,12 @@ _SITE_WARNING = "db10"
 _SITE_STALE = "bcc1"
 _SITE_FINISHED = "a1a8"
 
-#: The hosts a refresh without a mirror reaches, named in the self-test so an operator can open egress for them.
-#: Traced 2026-10-25 with `curl -I`: the pinned archive URL on github.com answers 302 to
-#: release-assets.githubusercontent.com; the database listing (`/databases/v6/latest.json`) and the database archive are
-#: both served by grype.anchore.io with no redirect (200).
-EGRESS_HOSTS = ("github.com", "release-assets.githubusercontent.com", "grype.anchore.io")
+#: The hosts the refresh reaches, named in the self-test so an operator can open egress for them. Traced 2026-10-25 with
+#: `curl -I`: the pinned archive URL on github.com answers 302 to release-assets.githubusercontent.com; the database
+#: listing (`/databases/v6/latest.json`) and the database archive are both served by grype.anchore.io with no redirect (200).
+BINARY_HOSTS = ("github.com", "release-assets.githubusercontent.com")
+DATABASE_HOSTS = ("grype.anchore.io",)
+EGRESS_HOSTS = BINARY_HOSTS + DATABASE_HOSTS
 
 
 class GrypeRefreshError(RuntimeError):
@@ -127,8 +128,10 @@ class GrypeDatabaseRefreshCollector(CollectorBase):
                 checks.append(check_fail("BINARY_PIN_PLATFORM", f"the pin has no archive for {platform}.", readiness_status=CollectorReadinessStatus.MISCONFIGURED))
         except (PinError, InstallError) as exc:
             checks.append(check_fail("BINARY_PIN_INVALID", str(exc), readiness_status=CollectorReadinessStatus.MISCONFIGURED))
+        # A mirror replaces only the database download: an empty or wrong binary is still fetched from GitHub.
+        checks.append(check_pass("BINARY_EGRESS_HOSTS", f"egress hosts to place the pinned binary when it is missing: {', '.join(BINARY_HOSTS)}."))
         if settings is not None and settings.database_mirror:
             checks.append(check_pass("DATABASE_MIRROR", f"the database imports from {settings.database_mirror}; no database egress."))
         else:
-            checks.append(check_pass("EGRESS_HOSTS", f"egress hosts for the binary and the database: {', '.join(EGRESS_HOSTS)}."))
+            checks.append(check_pass("DATABASE_EGRESS_HOSTS", f"egress hosts for the database: {', '.join(DATABASE_HOSTS)}."))
         return CollectorSelfTestResult.from_checks(checks, summary="grype database refresh self-test")
