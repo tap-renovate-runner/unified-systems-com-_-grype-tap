@@ -159,7 +159,7 @@ class TestSelfTest:
     def test_a_healthy_home_passes(self, home) -> None:
         result = mod.GrypeDatabaseRefreshCollector.self_test()
         assert not [c for c in result.checks if c.is_failure], result
-        assert {c.code for c in result.checks} >= {"HOME_WRITABLE", "SETTINGS_VALID", "BINARY_PIN_VALID", "EGRESS_HOSTS"}
+        assert {c.code for c in result.checks} >= {"HOME_WRITABLE", "SETTINGS_VALID", "BINARY_PIN_VALID", "BINARY_EGRESS_HOSTS", "DATABASE_EGRESS_HOSTS"}
 
     def test_the_probe_never_touches_a_file_an_operator_keeps_in_the_home(self, home, tmp_path) -> None:
         home.mkdir(parents=True)
@@ -178,7 +178,8 @@ class TestSelfTest:
         from tap_plugin.grype.binary_pin import load_pin
 
         assert urlparse(load_pin().assets["linux/amd64"].url).hostname in mod.EGRESS_HOSTS  # the first hop
-        assert "release-assets.githubusercontent.com" in mod.EGRESS_HOSTS  # where GitHub sends the archive (traced 2026-10-25)
+        # GitHub sends the archive to release-assets.githubusercontent.com (traced 2026-10-25), and the database is served by Anchore.
+        assert set(mod.EGRESS_HOSTS) == {"github.com", "release-assets.githubusercontent.com", "grype.anchore.io"}
 
     def test_bad_settings_are_named(self, home) -> None:
         home.mkdir(parents=True)
@@ -186,11 +187,12 @@ class TestSelfTest:
         failed = {c.code for c in mod.GrypeDatabaseRefreshCollector.self_test().checks if c.is_failure}
         assert "SETTINGS_INVALID" in failed
 
-    def test_a_mirror_means_no_database_egress(self, home) -> None:
+    def test_a_mirror_removes_the_database_egress_but_not_the_binary_egress(self, home) -> None:
         home.mkdir(parents=True)
         (home / "settings.json").write_text(json.dumps({"database_mirror": "/srv/grype-mirror"}))
         codes_ = {c.code for c in mod.GrypeDatabaseRefreshCollector.self_test().checks}
-        assert "DATABASE_MIRROR" in codes_ and "EGRESS_HOSTS" not in codes_
+        assert "DATABASE_MIRROR" in codes_ and "DATABASE_EGRESS_HOSTS" not in codes_
+        assert "BINARY_EGRESS_HOSTS" in codes_  # the binary is still fetched from GitHub when it is missing, mirror or not
 
 
 class TestRegistrationAndSchedule:
