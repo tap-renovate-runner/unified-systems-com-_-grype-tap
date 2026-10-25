@@ -29,8 +29,7 @@
         "source": {
           "type": "git",
           "url": "https://github.com/unified-systems-com/grype-tap",
-          "rev": "5427340b58be6321bfec3f4fc6c6b39144e46636",
-          "commit": "5427340b58be6321bfec3f4fc6c6b39144e46636"
+          "rev": "v0.1.0"
         }
       }
     ]

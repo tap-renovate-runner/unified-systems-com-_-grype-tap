@@ -29,4 +29,4 @@ reason = "Grype is a Go binary using Go's standard crypto, not the validated Ope
 [[boot.records]]
 name = "ci"
 description = "RESERVED NAME (req-boot-bootstrap-ci-record): the stack this plugin's own tests run in - depends_on closure + self, offline, credential-free. The consumer flips self to editable."
-sha256 = "5f7015529bdd865017d84d24d78d6549e60ea13b11139aa6cb274a6b5e1efb82"
+sha256 = "d3e324defab30214e776948fee4d603b695d946f1d1d8c36a02d339f5793ad4c"

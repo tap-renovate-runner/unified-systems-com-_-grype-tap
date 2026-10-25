@@ -11,6 +11,11 @@
         {
           "type": "generic",
           "path": "tap_plugin/grype/tap-plugin.toml"
+        },
+        {
+          "type": "json",
+          "path": "tap_plugin/grype/boot/ci.boot.json",
+          "jsonpath": "$.install.plugins[?(@.slug=='grype')].source.rev"
         }
       ]
     }
