@@ -10,7 +10,7 @@ description = "A grid-native Grype scan: builds an SBOM from the packages on the
 # writes vulnerability, scanner, scan run and finding nodes and their edges. Data order (the scan
 # runs after the inventory is collected) is Tier-2 and handled by the upstream-skip rule in
 # req-grype-trigger, not here. The reader imports both packages' models, so the declaration is
-# now observed; the SBOM builder import arrives with the collector.
+# now observed.
 depends_on = [
   { slug = "computing_core", note = "reads package, library, host and operating_system rows; calls build_cyclonedx" },
   { slug = "compliance_core", note = "writes vulnerability, scanner, scan_run and finding nodes and their edges" },
@@ -26,10 +26,13 @@ depends_on = [
 status = "uses-nonvalidated"
 reason = "Grype is a Go binary using Go's standard crypto, not the validated OpenSSL provider. It is placed out of band, so the crypto-BOM scan cannot observe it. The scan runs with network access disabled; only the database refresh opens a connection. A FIPS deployment waives per plugin in the boot profile."
 
-# Seeded data this plugin ships: the schedule that fires the database refresh. The schedule-grift-targets guard
+# Seeded data this plugin ships: the schedule that fires the database refresh, the scanner node every run belongs to, and
+# the schedule that fires the scan. The schedule-grift-targets guard
 # verifies the SCHEDULED_TARGET edge resolves to the registered collector.
 [grift]
 schedule = "grift/schedule.grift.json"
+scanner = "grift/scanner.grift.json"
+scan_schedule = "grift/scan_schedule.grift.json"
 
 [[boot.records]]
 name = "ci"

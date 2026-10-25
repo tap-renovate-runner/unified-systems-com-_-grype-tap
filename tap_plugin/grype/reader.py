@@ -14,14 +14,15 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from typing import Any
 
 from tap_grid.models import Edge, Entity
 from tap_plugin.compliance_core.models.compliance_finding import ComplianceFinding
-from tap_plugin.compliance_core.models.compliance_scan_run import ComplianceScanRun
+from tap_plugin.compliance_core.models.compliance_scanner import ComplianceScanner
 from tap_plugin.compliance_core.models.compliance_vulnerability import ComplianceVulnerability
 from tap_plugin.computing_core.models.library import Library
+from tap_plugin.computing_core.models.operating_system import OperatingSystem
 from tap_plugin.computing_core.models.package import Package
 from tap_plugin.grype import document, plan
 from tap_plugin.grype.targets import Target
@@ -30,9 +31,8 @@ INSTALLS = "INSTALLS_PACKAGE__computing_core"
 SHIPS = "SHIPS_LIBRARY__computing_core"
 RUNS_OS = "RUNS_OPERATING_SYSTEM__computing_core"
 CARRIES = document.CARRIES
-REPORTS = document.REPORTS
-SCANNED = document.SCANNED
 
+SCANNER_KEY = "grype-tap"
 PACKAGE_TYPE = "computing_core__package"
 LIBRARY_TYPE = "computing_core__library"
 
@@ -62,18 +62,6 @@ def _json(value: Any) -> Any:
     return value
 
 
-_NEVER = datetime.min.replace(tzinfo=UTC)
-
-
-def _seen(run: ComplianceScanRun) -> datetime:
-    """When a run observed, or the earliest moment when it recorded none, so runs always compare."""
-    return run.observed_at or _NEVER
-
-
-def _ids(rows: Iterable[Any]) -> list[str]:
-    return [str(row) for row in rows]
-
-
 def read_node(entity_type: str, node_id: str) -> document.ExistingNode:
     """One node whole: every declared field, plus the entity's name, dimensions and version."""
     model = MODELS[entity_type]
@@ -90,11 +78,6 @@ def known_ids(
 ) -> frozenset[str]:
     """The ids of every node this run read, for ``document.Context``: the only existing nodes an edge may name."""
     return frozenset([t.target.id for t in targets] + [f.node_id for f in findings] + [v.node_id for v in vulnerabilities])
-
-
-def known_edge_ids(findings: Iterable[plan.ExistingFinding], coverage: Mapping[str, str]) -> frozenset[str]:
-    """The edge ids this run read as the ones it replaces: each finding's reporting edge and each target's coverage edge."""
-    return frozenset([f.reporting_edge_id for f in findings if f.reporting_edge_id] + list(coverage.values()))
 
 
 def read_nodes(patches: plan.Plan) -> dict[str, document.ExistingNode]:
@@ -146,8 +129,20 @@ def read_operating_systems() -> dict[str, list[str | None]]:
     return {target: sorted(systems) or [None] for target, systems in result.items()}
 
 
+def read_operating_system(os_id: str) -> dict[str, Any]:
+    """One operating system's properties, as the SBOM builder takes them."""
+    obj = OperatingSystem.objects.get(entity_id=os_id)
+    return {name: getattr(obj, name) for name in OperatingSystem.FIELD_CRUD_SCHEMA}
+
+
+def read_scanner_id() -> str | None:
+    """The id of this plugin's scanner node (``source`` ``grype``, ``scanner_key`` ``grype-tap``), or ``None`` when it is not seeded."""
+    scanner = ComplianceScanner.objects.filter(source=plan.SOURCE, scanner_key=SCANNER_KEY).first()
+    return str(scanner.entity_id) if scanner else None
+
+
 def read_existing_findings() -> list[plan.ExistingFinding]:
-    """Every live finding of source ``grype`` with its target, its status and the edge of the run that last reported it."""
+    """Every live finding of source ``grype`` with its target and its status."""
     findings = {str(f.entity_id): f for f in ComplianceFinding.objects.filter(source=plan.SOURCE)}
     if not findings:
         return []
@@ -155,15 +150,6 @@ def read_existing_findings() -> list[plan.ExistingFinding]:
     target_of: dict[str, str] = {}
     for target, finding in Edge.objects.filter(edge_type=CARRIES, to_entity_id__in=list(findings)).values_list("from_entity_id", "to_entity_id"):
         target_of[str(finding)] = str(target)
-    runs = {str(r.entity_id): r for r in ComplianceScanRun.objects.filter(source=plan.SOURCE)}
-    reporting: dict[str, tuple[datetime, str]] = {}
-    for edge_id, run, finding in Edge.objects.filter(edge_type=REPORTS, to_entity_id__in=list(findings)).values_list("entity_id", "from_entity_id", "to_entity_id"):
-        run_row = runs.get(str(run))
-        if run_row is None:
-            continue
-        seen = _seen(run_row)
-        if str(finding) not in reporting or seen > reporting[str(finding)][0]:
-            reporting[str(finding)] = (seen, str(edge_id))
     existing = []
     for node_id, finding_row in findings.items():
         target_id = target_of.get(node_id)
@@ -176,7 +162,6 @@ def read_existing_findings() -> list[plan.ExistingFinding]:
                 target_id=target_id,
                 status=finding_row.status,
                 summary=finding_row.summary,
-                reporting_edge_id=reporting[node_id][1] if node_id in reporting else None,
                 version=versions[finding_row.entity_id],
             )
         )
@@ -197,19 +182,6 @@ def read_existing_vulnerabilities() -> list[plan.ExistingVulnerability]:
         )
         for row in rows
     ]
-
-
-def read_existing_coverage(target_ids: Iterable[str]) -> dict[str, str]:
-    """Each target's current ``SCANNED`` edge from this scanner's runs: the one the next run replaces."""
-    runs = {str(r.entity_id): r for r in ComplianceScanRun.objects.filter(source=plan.SOURCE)}
-    latest: dict[str, tuple[datetime, str]] = {}
-    for edge_id, run, target in Edge.objects.filter(edge_type=SCANNED, to_entity_id__in=_ids(target_ids), from_entity_id__in=list(runs)).values_list(
-        "entity_id", "from_entity_id", "to_entity_id"
-    ):
-        seen = _seen(runs[str(run)])
-        if str(target) not in latest or seen > latest[str(target)][0]:
-            latest[str(target)] = (seen, str(edge_id))
-    return {target: edge for target, (_, edge) in latest.items()}
 
 
 def documents_by_operating_system(

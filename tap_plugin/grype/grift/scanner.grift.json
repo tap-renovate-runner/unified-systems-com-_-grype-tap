@@ -1,0 +1,50 @@
+{
+  "metadata": {
+    "grift_version": "0"
+  },
+  "_reserved": {},
+  "batches": [
+    {
+      "batch_entity": {
+        "entity_id": "01a17424-cb27-7012-b72a-494e6738639a",
+        "entity_type": "batch",
+        "name": "grype scanner",
+        "dimensions": {}
+      },
+      "batch_node": {
+        "source": "plugins.grype.grift.scanner",
+        "name": "grype scanner",
+        "description": "Seeds the one compliance_scanner node every grype scan run is performed by. See req-grype-run in specs/spec-grype-v0.md.",
+        "description_json": {
+          "format": "tap.grype.scanner-v0",
+          "data": {
+            "scanner_key": "grype-tap",
+            "note": "The scanner never carries a version: a version changes under an unchanged install and lives on the scan run (tool_version)."
+          }
+        }
+      },
+      "nodes": [
+        {
+          "entity": {
+            "entity_id": "01a17424-cb54-756f-a0d7-a2e86179b4d9",
+            "entity_type": "compliance_core__compliance_scanner",
+            "name": "Grype",
+            "dimensions": {
+              "compliance": "scanner"
+            }
+          },
+          "node": {
+            "source": "grype",
+            "scanner_key": "grype-tap",
+            "name": "Grype",
+            "configuration": {
+              "staleness_hours": 48
+            },
+            "locator": null
+          }
+        }
+      ],
+      "edges": []
+    }
+  ]
+}
