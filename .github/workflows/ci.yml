@@ -26,6 +26,6 @@ jobs:
       contents: read
       security-events: write
     # Pinned to tap main at 91def688 (2026-10-16); Renovate does not track this pin.
-    uses: unified-systems-com/tap/.github/workflows/plugin-ci.yml@91def688c2290e6422dbebdf7f5a2ddbfa44fc3a
+    uses: unified-systems-com/tap/.github/workflows/plugin-ci.yml@879c6ee6a56f68022860c2c05a0bdc9f433612ae
     with:
       plugin_slug: grype
