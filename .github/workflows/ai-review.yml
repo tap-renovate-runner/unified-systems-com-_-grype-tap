@@ -24,7 +24,7 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
-    uses: unified-systems-com/unified-ai-review/.github/workflows/review.yml@8d7946c4c85a2814eccf0712e8f142f0f1ee3b22 # main 2026-08-23 — context full-PR-detail + open-state filter + quota fail-fast + self-shims
+    uses: unified-systems-com/unified-ai-review/.github/workflows/review.yml@064ad93f60cfe8913a33811e5c62720364bab76f # main 2026-08-23 — context full-PR-detail + open-state filter + quota fail-fast + self-shims
     with:
       prompts-repo: unified-systems-com/unified-ai-review-prompts
       prompts-ref: 1063115d1dd25c684008bfb50cd940b97d60a451 # main 2026-08-31 — security pack v2: phase-ordered review + gated verdicts (prompts PR #2, approved 2026-08-31)
