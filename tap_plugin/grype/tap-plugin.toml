@@ -37,4 +37,4 @@ scan_schedule = "grift/scan_schedule.grift.json"
 [[boot.records]]
 name = "ci"
 description = "RESERVED NAME (req-boot-bootstrap-ci-record): the stack this plugin's own tests run in - depends_on closure + self, offline, credential-free. The consumer flips self to editable."
-sha256 = "d3e324defab30214e776948fee4d603b695d946f1d1d8c36a02d339f5793ad4c"
+sha256 = "f315ee06af94b4fa0440f8c3ccc5967646c3c4bc5c7d6d19e8351bc94618b9ca"
