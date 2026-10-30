@@ -51,14 +51,12 @@ def run(
     *,
     findings: list[plan.ExistingFinding] | None = None,
     vulnerabilities: list[plan.ExistingVulnerability] | None = None,
-    coverage: dict[str, str] | None = None,
 ) -> plan.Plan:
     return plan.plan_scan(
         targets=grid,
         results=results,
         existing_findings=findings or [],
         existing_vulnerabilities=vulnerabilities or [],
-        existing_coverage=coverage or {},
         run_key="0194-run",
         observed_at=NOW,
         tool_version=VERSION,
@@ -72,7 +70,7 @@ def one_document(document: output.Document, grid: list[plan.GridTarget]) -> list
 def as_existing(first: plan.Plan, grid: list[plan.GridTarget]) -> tuple[list[plan.ExistingFinding], list[plan.ExistingVulnerability]]:
     """The rows the grid would hold after ``first`` was written."""
     findings = [
-        plan.ExistingFinding(f.key, f"f-{n}", f.target_id, plan.OPEN, f.summary, f"re-{n}") for n, f in enumerate(first.mint_findings)
+        plan.ExistingFinding(f.key, f"f-{n}", f.target_id, plan.OPEN, f.summary) for n, f in enumerate(first.mint_findings)
     ]
     vulns = [
         plan.ExistingVulnerability(f"v-{n}", 1, v.key, tuple(v.fields["aliases"]), {k: x for k, x in v.fields.items() if k not in ("vuln_id", "aliases")})
@@ -103,7 +101,7 @@ class TestFirstRun(unittest.TestCase):
         self.assertEqual(len({f.key for f in self.plan.mint_findings}), 91)
         self.assertEqual(len(self.plan.reports), 91)
         self.assertEqual(len(self.plan.mint_vulnerabilities), 27)
-        self.assertEqual((self.plan.patch_vulnerabilities, self.plan.patch_findings, self.plan.delete_edges, self.plan.unmapped), ([], [], [], []))
+        self.assertEqual((self.plan.patch_vulnerabilities, self.plan.patch_findings, self.plan.unmapped), ([], [], []))
         minted = {m.key for m in self.plan.mint_vulnerabilities}
         self.assertEqual({f.vulnerability.value for f in self.plan.mint_findings}, minted)  # every reference is to a node the plan creates
 
@@ -182,27 +180,27 @@ class TestSecondRun(unittest.TestCase):
         again = self.second()
         self.assertEqual((again.mint_findings, again.patch_findings, again.mint_vulnerabilities, again.patch_vulnerabilities), ([], [], [], []))
 
-    def test_the_finding_is_the_same_node_across_runs_and_only_its_reporting_edge_moves(self) -> None:
+    def test_an_open_finding_that_matches_again_is_not_reported_again_so_history_does_not_grow_with_every_run(self) -> None:
         again = self.second()
-        self.assertEqual({r.finding for r in again.reports}, {plan.Ref.existing(f.node_id) for f in self.findings})
-        self.assertEqual(sorted(again.delete_edges), sorted(f.reporting_edge_id for f in self.findings))
+        self.assertEqual(again.reports, [])  # it was reported by the run that opened it; staying open writes nothing
 
-    def test_the_previous_coverage_edge_of_each_touched_target_is_deleted(self) -> None:
-        old = {g.target.id: f"cov-{g.target.id}" for g in self.grid}
-        again = self.second(coverage=old)
-        self.assertEqual(set(old.values()) - set(again.delete_edges), set())
+    def test_nothing_is_ever_deleted_and_every_target_gets_a_coverage_entry_each_run(self) -> None:
+        again = self.second()
+        self.assertFalse(hasattr(again, "delete_edges"))  # a collector holds no delete capability
+        self.assertEqual({c.target_id for c in again.coverage}, {g.target.id for g in self.grid})
         self.assertEqual(len(again.coverage), len(self.grid))
 
     def test_a_finding_no_longer_matched_on_a_scanned_target_is_resolved(self) -> None:
-        stale = plan.ExistingFinding('["CVE-0000-0001","computing_core__package","apk","gone","1"]', "f-gone", self.grid[0].target.id, plan.OPEN, "x", "re-gone")
+        stale = plan.ExistingFinding('["CVE-0000-0001","computing_core__package","apk","gone","1"]', "f-gone", self.grid[0].target.id, plan.OPEN, "x")
         again = run(self.grid, one_document(self.doc, self.grid), findings=[*self.findings, stale], vulnerabilities=self.vulns)
         self.assertEqual([(p.node_id, p.fields) for p in again.patch_findings], [("f-gone", {"status": "resolved"})])
-        self.assertNotIn("re-gone", again.delete_edges)  # a resolved finding keeps its edge to the last run that saw it
+        self.assertEqual(again.reports, [])  # a resolved finding keeps its edge to the last run that reported it
 
     def test_a_resolved_finding_that_matches_again_is_reopened(self) -> None:
         resolved = [dataclasses.replace(self.findings[0], status=plan.RESOLVED), *self.findings[1:]]
         again = run(self.grid, one_document(self.doc, self.grid), findings=resolved, vulnerabilities=self.vulns)
         self.assertEqual([(p.node_id, p.fields) for p in again.patch_findings], [(self.findings[0].node_id, {"status": "open"})])
+        self.assertEqual(again.reports, [plan.Report(plan.Ref.existing(self.findings[0].node_id))])  # the run that reopens it reports it
 
     def test_a_changed_severity_or_fix_state_updates_the_summary_only(self) -> None:
         changed = [dataclasses.replace(self.findings[0], summary="Grype severity Low; fix unknown"), *self.findings[1:]]
@@ -217,7 +215,7 @@ class TestResolveOnlyWhatWasScanned(unittest.TestCase):
         self.first = run(self.grid, one_document(self.doc, self.grid))
         self.findings, self.vulns = as_existing(self.first, self.grid)
         self.ids = tuple(g.target.id for g in self.grid)
-        self.gone = plan.ExistingFinding('["CVE-0000-0001","computing_core__library","x","1"]', "f-gone", self.grid[0].target.id, plan.OPEN, "x", None)
+        self.gone = plan.ExistingFinding('["CVE-0000-0001","computing_core__library","x","1"]', "f-gone", self.grid[0].target.id, plan.OPEN, "x")
 
     def test_when_every_document_failed_nothing_is_written_but_the_record_of_it(self) -> None:
         failed = run(self.grid, [plan.DocumentResult("doc-0", self.ids, None)], findings=[*self.findings, self.gone], vulnerabilities=self.vulns)
@@ -232,12 +230,12 @@ class TestResolveOnlyWhatWasScanned(unittest.TestCase):
         self.assertEqual({(c.outcome, c.reason) for c in mixed.coverage}, {("not-scanned", "document-failed")})
         self.assertEqual(mixed.run["outcome"], "partial")
         self.assertNotIn("f-gone", [p.node_id for p in mixed.patch_findings])  # still open
-        self.assertEqual({r.finding for r in mixed.reports}, {plan.Ref.existing(f.node_id) for f in self.findings})  # matches still count
+        self.assertEqual(mixed.reports, [])  # matches still count: they stay open, so nothing is resolved or newly reported
 
     def test_a_target_only_in_the_failed_document_is_untouched_while_another_is_resolved(self) -> None:
         second = dataclasses.replace(self.grid[0], target=dataclasses.replace(self.grid[0].target, id="other", name="other-lib", purl="pkg:generic/other@1"), natural_key=("other-lib", "1"))
         grid = [*self.grid, second]
-        stranded = plan.ExistingFinding('["CVE-0000-0002","computing_core__library","other-lib","1"]', "f-other", "other", plan.OPEN, "x", None)
+        stranded = plan.ExistingFinding('["CVE-0000-0002","computing_core__library","other-lib","1"]', "f-other", "other", plan.OPEN, "x")
         results = [plan.DocumentResult("good", tuple(g.target.id for g in self.grid), self.doc), plan.DocumentResult("bad", ("other",), None)]
         mixed = run(grid, results, findings=[*self.findings, self.gone, stranded], vulnerabilities=self.vulns)
         outcomes = {c.target_id: c.outcome for c in mixed.coverage}
@@ -259,7 +257,7 @@ class TestResolveOnlyWhatWasScanned(unittest.TestCase):
 
     def test_a_document_with_an_unmapped_match_resolves_nothing_for_any_target_in_it(self) -> None:
         extra = plan.GridTarget(targets.Target("lonely", "library", "lonely", "1", None, "pkg:generic/lonely@1"), "computing_core__library", ("lonely", "1"))
-        stale = plan.ExistingFinding('["CVE-0000-0003","computing_core__library","lonely","1"]', "f-lonely", "lonely", plan.OPEN, "x", None)
+        stale = plan.ExistingFinding('["CVE-0000-0003","computing_core__library","lonely","1"]', "f-lonely", "lonely", plan.OPEN, "x")
         # One document, several targets, one match that maps to none of them: no target in it can be said to have lost a finding.
         stray = dataclasses.replace(self.doc.matches[0], artifact=dataclasses.replace(self.doc.matches[0].artifact, purl="pkg:maven/not/in-the-grid@9", name="in-the-grid", version="9"))
         doc = dataclasses.replace(self.doc, matches=(*self.doc.matches, stray))
@@ -267,7 +265,7 @@ class TestResolveOnlyWhatWasScanned(unittest.TestCase):
         result = run([*self.grid, extra], [plan.DocumentResult("doc-0", (*ids, "lonely"), doc)], findings=[*self.findings, stale], vulnerabilities=self.vulns)
         self.assertEqual({(c.outcome, c.reason) for c in result.coverage}, {("not-scanned", "unmapped")})
         self.assertEqual([p for p in result.patch_findings if p.fields.get("status") == "resolved"], [])
-        self.assertEqual({r.finding for r in result.reports}, {plan.Ref.existing(f.node_id) for f in self.findings})  # what did map still counts
+        self.assertEqual(result.reports, [])  # what did map is still open and stays so: nothing is resolved, nothing new is reported
         self.assertEqual(result.run["outcome"], "partial")
         self.assertEqual(len(result.unmapped), 1)
 
@@ -358,7 +356,7 @@ class TestAFindingKeepsItsKey(unittest.TestCase):
         again = run(self.grid, one_document(self.full, self.grid), findings=findings, vulnerabilities=vulns)
         self.assertEqual((again.mint_findings, again.mint_vulnerabilities), ([], []))
         self.assertEqual([p for p in again.patch_findings if p.fields.get("status") == "resolved"], [])
-        self.assertEqual({r.finding for r in again.reports}, {plan.Ref.existing(f.node_id) for f in findings})
+        self.assertEqual(again.reports, [])  # still open, so nothing new to report
         added = {a for p in again.patch_vulnerabilities for a in p.fields.get("aliases", [])}
         self.assertIn("CVE-2021-44228", added)  # the CVE becomes an alias of the node that already exists
 
@@ -399,7 +397,7 @@ class TestFindingKeys(unittest.TestCase):
         doc = parsed(recordings.LOG4J)
         grid = grid_targets(doc)
         long_key = dataclasses.replace(grid[0], natural_key=("x" * 600,))
-        old = plan.ExistingFinding("old", "f-old", grid[0].target.id, plan.OPEN, "x", None)
+        old = plan.ExistingFinding("old", "f-old", grid[0].target.id, plan.OPEN, "x")
         refused = run([long_key], one_document(doc, [long_key]), findings=[old])
         self.assertEqual([(c.outcome, c.reason) for c in refused.coverage], [("failed", "finding-key-too-long")])
         self.assertEqual((refused.mint_findings, refused.patch_findings, refused.reports), ([], [], []))
@@ -460,7 +458,7 @@ class TestVulnerabilityPatch(unittest.TestCase):
         # CVE-2021-45105 sorts after other vulnerabilities of the same target, so the refusal comes mid-target.
         one = plan.ExistingVulnerability("v1", 1, "GHSA-p6xc-xr62-6r2g", (), {})
         two = plan.ExistingVulnerability("v2", 1, "GHSA-other", ("CVE-2021-45105",), {})
-        old = plan.ExistingFinding('["CVE-0000-0001","computing_core__library","x","1"]', "f-old", self.grid[0].target.id, plan.OPEN, "x", None)
+        old = plan.ExistingFinding('["CVE-0000-0001","computing_core__library","x","1"]', "f-old", self.grid[0].target.id, plan.OPEN, "x")
         result = run(self.grid, one_document(self.doc, self.grid), vulnerabilities=[one, two], findings=[old])
         self.assertNotIn("CVE-2021-45105", {m.key for m in result.mint_vulnerabilities})
         self.assertIn(("failed", "vulnerability-ambiguous"), {(c.outcome, c.reason) for c in result.coverage})
@@ -515,7 +513,7 @@ class TestRunsThatScannedNothing(unittest.TestCase):
             with self.subTest(outcome):
                 empty = plan.plan_unscanned(outcome=outcome, run_key="k", observed_at=NOW, tool_version=VERSION)
                 self.assertEqual(empty.run["outcome"], outcome)
-                self.assertEqual((empty.coverage, empty.delete_edges, empty.mint_findings, empty.patch_findings), ([], [], [], []))
+                self.assertEqual((empty.coverage, empty.mint_findings, empty.patch_findings), ([], [], []))
                 self.assertIsNone(empty.run["data_version"])
 
     def test_any_other_outcome_is_refused(self) -> None:

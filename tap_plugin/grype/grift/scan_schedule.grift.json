@@ -1,0 +1,62 @@
+{
+  "metadata": {
+    "grift_version": "0"
+  },
+  "_reserved": {},
+  "batches": [
+    {
+      "batch_entity": {
+        "entity_id": "01a17424-cb7d-7327-ac96-fbb9975f9f62",
+        "entity_type": "batch",
+        "name": "grype scan schedule",
+        "dimensions": {}
+      },
+      "batch_node": {
+        "source": "plugins.grype.grift.scan_schedule",
+        "name": "grype scan schedule",
+        "description": "Seeds the tap_cares schedule that fires grype:grype daily. See req-grype-trigger in specs/spec-grype-v0.md.",
+        "description_json": {
+          "format": "tap.grype.schedule-v0",
+          "data": {
+            "collector": "grype:grype",
+            "cron": "43 4 * * *",
+            "cost_per_fire": "No credential and no network: a scan reads the grid and the installed database only. One fire runs Grype once per operating system over the packages and libraries on the grid and writes one batch."
+          }
+        }
+      },
+      "nodes": [
+        {
+          "entity": {
+            "entity_id": "01a17424-cba6-7354-bdd1-1f2c6170eae4",
+            "entity_type": "schedule",
+            "name": "grype scan",
+            "dimensions": {}
+          },
+          "node": {
+            "name": "grype scan",
+            "description": "Scans every package and library on the grid with the pinned Grype against the installed advisory database, and writes the run, findings, vulnerabilities and per-target coverage. Runs at 04:43, off the top of the hour and after the 02:17 database refresh. A fire that finds another collection job running is skipped and writes nothing. Disable or re-time this freely; Schedule is user-editable.",
+            "enabled": true,
+            "cron_expression": "43 4 * * *",
+            "max_active_runs": 1
+          }
+        }
+      ],
+      "edges": [
+        {
+          "entity": {
+            "entity_id": "01a17424-cbce-7626-9812-1b465d9a717e",
+            "entity_type": "edge",
+            "name": "SCHEDULED_TARGET",
+            "dimensions": {}
+          },
+          "edge": {
+            "from_entity_id": "01a17424-cba6-7354-bdd1-1f2c6170eae4",
+            "to_entity_id": "a96db7d3-7283-552b-b2ae-ac2a1bea9bdf",
+            "edge_type": "SCHEDULED_TARGET",
+            "properties": {}
+          }
+        }
+      ]
+    }
+  ]
+}

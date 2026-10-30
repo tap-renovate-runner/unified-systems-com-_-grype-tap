@@ -1,8 +1,8 @@
 """The GRIFT document of one run (req-grype-collector, "Landing"). Stdlib only, no Django and no I/O.
 
 ``build_document`` turns a ``plan.Plan`` into one single-batch GRIFT v0 document: the run node and its scanner
-edge, the findings the plan creates, the vulnerabilities it mints, the coverage and reporting edges, and a
-``deletes`` section for the edges the run replaces. The collector hands the result to ``submit_grift``, the one
+edge, the findings the plan creates, the vulnerabilities it mints, the coverage and reporting edges. It deletes nothing: a collector is
+not given the delete capability, so earlier runs' edges stay and the latest is read by the run's time. The collector hands the result to ``submit_grift``, the one
 write path a collector is given, so the whole run lands in one all-or-nothing batch.
 
 A GRIFT upsert of a node that already exists REPLACES it, so a shared node can never be sent as only the fields this
@@ -62,6 +62,10 @@ class DocumentError(ValueError):
     """The plan names something the document cannot be built from."""
 
 
+class StaleNodeError(DocumentError):
+    """A node the plan patches was written after the plan was made: the grid moved, so the run reads and plans again."""
+
+
 @dataclass(frozen=True)
 class ExistingNode:
     """A node as the grid last held it: everything needed to send it back with only some fields changed."""
@@ -82,9 +86,6 @@ class Context:
     #: only name a node this run created, the scanner, or one of these: a plan cannot attach a relationship to an id
     #: nobody read.
     known_ids: frozenset[str]
-    #: The ids of the edges this run read as the ones it replaces (each finding's reporting edge, each target's coverage
-    #: edge). A deletion of any other edge id is refused: a plan cannot end a relationship nobody read.
-    known_edge_ids: frozenset[str]
     #: The nodes the plan patches, by id. A patch of a node not in here is refused, never sent blind.
     existing_nodes: Mapping[str, ExistingNode] = field(default_factory=dict)
     new_id: Callable[[], str] = lambda: str(uuid7())
@@ -113,7 +114,7 @@ def _overlay(
     if existing is None:
         raise DocumentError(f"the plan patches node {node_id!r}, which was not read; it will not be sent from memory")
     if existing.version != planned_version:
-        raise DocumentError(f"node {node_id!r} was planned at version {planned_version} but read at {existing.version}")
+        raise StaleNodeError(f"node {node_id!r} was planned at version {planned_version} but read at {existing.version}")
     foreign = sorted(set(fields) - OWNED_FIELDS[entity_type])
     if foreign:
         raise DocumentError(f"the plan patches {foreign} on {node_id!r}, which are not fields this plugin owns")
@@ -170,9 +171,6 @@ def build_document(plan: planning.Plan, ctx: Context, *, batch_name: str | None 
         props = {"outcome": cover.outcome, **({"reason": cover.reason} if cover.reason else {})}
         edges.append(_edge(ctx.new_id(), SCANNED, run_id, cover.target_id, props))
 
-    unread = sorted(set(plan.delete_edges) - ctx.known_edge_ids)
-    if unread:
-        raise DocumentError(f"the plan deletes edge(s) {unread[:3]}, which this run did not read as ones it replaces")
     allowed = {ctx.scanner_id, *ctx.known_ids}
     defined = {n["entity"]["entity_id"] for n in nodes}
     for edge in edges:
@@ -203,14 +201,4 @@ def build_document(plan: planning.Plan, ctx: Context, *, batch_name: str | None 
         "nodes": nodes,
         "edges": edges,
     }
-    if plan.delete_edges:
-        batch["deletes"] = {
-            # An edge this run means to replace that is already gone means another run planned from the same
-            # snapshot and replaced it first: refuse the whole batch (it is atomic) so the collector re-reads and
-            # re-plans, rather than adding a second "latest" edge beside the first run's.
-            "on_missing": "error",
-            "on_tombstoned": "error",
-            "edges": [{"entity_id": edge_id, "entity_type": "edge", "reason": "replaced by a later Grype run"} for edge_id in plan.delete_edges],
-            "nodes": [],
-        }
     return {"metadata": {"grift_version": _GRIFT_VERSION}, "_reserved": {}, "batches": [batch]}

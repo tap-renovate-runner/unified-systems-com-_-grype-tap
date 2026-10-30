@@ -10,9 +10,6 @@ database, submits the document through ``grift_import``, and checks what the gri
 
 from __future__ import annotations
 
-import dataclasses
-import itertools
-import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -152,13 +149,11 @@ class TestEndToEnd:
         grid_targets = [gt for gt, _ in rows]
         result = plan.DocumentResult("doc-0", tuple(gt.target.id for gt in grid_targets), self.doc)
         findings, vulnerabilities = reader.read_existing_findings(), reader.read_existing_vulnerabilities()
-        coverage = reader.read_existing_coverage(gt.target.id for gt in grid_targets)
         the_plan = plan.plan_scan(
             targets=grid_targets,
             results=[result],
             existing_findings=findings,
             existing_vulnerabilities=vulnerabilities,
-            existing_coverage=coverage,
             run_key=run_key,
             observed_at=NOW,
             tool_version=VERSION,
@@ -167,7 +162,6 @@ class TestEndToEnd:
             scanner_id=str(self.scanner.id),
             field_names=reader.field_names(),
             known_ids=reader.known_ids(grid_targets, findings, vulnerabilities),
-            known_edge_ids=reader.known_edge_ids(findings, coverage),
             existing_nodes=reader.read_nodes(the_plan),
         )
         return the_plan, document.build_document(the_plan, ctx)
@@ -195,42 +189,65 @@ class TestEndToEnd:
         self.run_once("run-1")
         assert Entity.objects.get(pk=self.theirs.id).version > before
 
-    def test_a_second_run_over_unchanged_rows_creates_no_node_and_keeps_one_edge_per_pair(self) -> None:
+    def test_a_second_run_over_unchanged_rows_creates_no_node_reports_nothing_again_and_adds_one_coverage_edge_per_target(self) -> None:
         self.run_once("run-1")
         finding_model, vulnerability_model = get_model_class(document.FINDING), get_model_class(document.VULNERABILITY)
         findings_before = set(finding_model.objects.values_list("entity_id", flat=True))
         vulnerabilities_before = set(vulnerability_model.objects.values_list("entity_id", flat=True))
         the_plan, result = self.run_once("run-2")
         assert not result.errors, result.errors
-        assert (the_plan.mint_findings, the_plan.mint_vulnerabilities, the_plan.patch_findings) == ([], [], [])
+        assert (the_plan.mint_findings, the_plan.mint_vulnerabilities, the_plan.patch_findings, the_plan.reports) == ([], [], [], [])
         assert get_model_class(document.RUN).objects.filter(source="grype").count() == 2  # one node per execution
-        # The same finding and vulnerability nodes, not copies: a run moves edges, it does not remint what it saw before.
+        # The same finding and vulnerability nodes, not copies: a run does not remint what it saw before.
         assert set(finding_model.objects.values_list("entity_id", flat=True)) == findings_before
         assert set(vulnerability_model.objects.values_list("entity_id", flat=True)) == vulnerabilities_before
-        findings = get_model_class(document.FINDING).objects.filter(source="grype")
-        for finding in findings:
+        for finding in finding_model.objects.filter(source="grype"):
             reporting = Edge.objects.filter(edge_type=document.REPORTS, to_entity_id=finding.entity_id)
-            assert reporting.count() == 1  # latest run only
+            assert reporting.count() == 1  # reported by the run that opened it; staying open writes nothing more
+        runs = {str(r.entity_id): r.run_key for r in get_model_class(document.RUN).objects.filter(source="grype")}
         for package_entity in self.packages.values():
             coverage = Edge.objects.filter(edge_type=document.SCANNED, to_entity_id=package_entity.id)
-            assert coverage.count() == 1  # exactly one coverage edge per target
-            assert coverage.get().properties == {"outcome": "scanned"}
+            assert sorted(runs[str(c.from_entity_id)] for c in coverage) == ["run-1", "run-2"]  # history stays; the latest is read by the run's time
+            assert all(c.properties == {"outcome": "scanned"} for c in coverage)
 
-    def test_two_runs_planned_from_the_same_snapshot_do_not_leave_two_current_edges_per_pair(self) -> None:
+    def test_the_current_coverage_of_a_target_is_the_latest_run_of_this_scanner_and_nobody_elses(self) -> None:
         self.run_once("run-1")
+        later = datetime(2026, 10, 19, 5, 43, tzinfo=UTC)
+        target = next(iter(self.packages.values()))
+        first = reader.read_latest_coverage([target.id])[str(target.id)]
+        assert first.outcome == "scanned" and first.observed_at == NOW
+        # A later run of ours, and a still later run of ANOTHER scanner's source that also examined the target.
+        mine = make("compliance_core__compliance_scan_run", {"source": "grype", "run_key": "run-2", "category": "grype-grid", "outcome": "ok", "observed_at": later.isoformat()})
+        link(mine, target, document.SCANNED, outcome="not-scanned", reason="document-failed")
+        older = make("compliance_core__compliance_scan_run", {"source": "grype", "run_key": "run-0", "category": "grype-grid", "outcome": "ok", "observed_at": datetime(2026, 10, 18, tzinfo=UTC).isoformat()})
+        link(older, target, document.SCANNED, outcome="failed", reason="finding-key-too-long")  # inserted last but observed first: order of arrival must not matter
+        theirs = make("compliance_core__compliance_scan_run", {"source": "trivy", "run_key": "t-1", "category": "x", "outcome": "ok", "observed_at": datetime(2026, 10, 20, tzinfo=UTC).isoformat()})
+        link(theirs, target, document.SCANNED, outcome="scanned")
+        current = reader.read_latest_coverage([target.id])[str(target.id)]
+        assert (current.run_id, current.outcome, current.reason, current.observed_at) == (str(mine.id), "not-scanned", "document-failed", later)
+        assert reader.read_latest_coverage([]) == {}
+
+    def test_two_first_runs_planned_from_the_same_empty_snapshot_cannot_leave_two_nodes_for_one_finding(self) -> None:
         _, first = self.prepare("run-a")
-        _, second = self.prepare("run-b")  # planned before run-a was written, so it deletes the same old edges
+        _, second = self.prepare("run-b")  # planned before run-a was written, so it mints the same findings again
         assert not grift_import(first).errors
         refused = grift_import(second)
-        assert refused.errors, "the second run's deletes name edges the first run already replaced"
-        runs = {r.run_key for r in get_model_class(document.RUN).objects.filter(source="grype")}
-        assert runs == {"run-1", "run-a"}  # run-b wrote nothing
-        for finding in get_model_class(document.FINDING).objects.filter(source="grype"):
-            assert Edge.objects.filter(edge_type=document.REPORTS, to_entity_id=finding.entity_id).count() == 1
-        for package_entity in self.packages.values():
-            assert Edge.objects.filter(edge_type=document.SCANNED, to_entity_id=package_entity.id).count() == 1
+        assert refused.errors, "the second run would mint a second node for each finding; the grid's natural key refuses it"
+        assert {r.run_key for r in get_model_class(document.RUN).objects.filter(source="grype")} == {"run-a"}  # run-b wrote nothing
+        finding_model = get_model_class(document.FINDING)
+        assert finding_model.objects.filter(source="grype").count() == len({f.source_key for f in finding_model.objects.filter(source="grype")})
         _, again = self.run_once("run-b2")  # a fresh read and plan, as the collector does after a refusal, succeeds
         assert not again.errors
+
+    def test_two_runs_planned_from_the_same_populated_snapshot_both_land_and_only_add_history(self) -> None:
+        self.run_once("run-1")
+        _, first = self.prepare("run-a")
+        _, second = self.prepare("run-b")
+        assert not grift_import(first).errors and not grift_import(second).errors
+        finding_model = get_model_class(document.FINDING)
+        assert finding_model.objects.filter(source="grype").count() == len({f.source_key for f in finding_model.objects.filter(source="grype")})
+        for package_entity in self.packages.values():
+            assert Edge.objects.filter(edge_type=document.SCANNED, to_entity_id=package_entity.id).count() == 3  # run-1, run-a, run-b
 
     def test_a_node_that_moved_between_planning_and_reading_it_whole_is_refused_before_anything_is_sent(self) -> None:
         rows = self.targets()
@@ -239,7 +256,7 @@ class TestEndToEnd:
         the_plan = plan.plan_scan(
             targets=grid_targets,
             results=[plan.DocumentResult("doc-0", tuple(gt.target.id for gt in grid_targets), self.doc)],
-            existing_findings=[], existing_vulnerabilities=vulnerabilities, existing_coverage={},
+            existing_findings=[], existing_vulnerabilities=vulnerabilities,
             run_key="run-moved", observed_at=NOW, tool_version=VERSION,
         )
         assert the_plan.patch_vulnerabilities, "the plan must patch the shared vulnerability for this to mean anything"
@@ -249,7 +266,6 @@ class TestEndToEnd:
             scanner_id=str(self.scanner.id),
             field_names=reader.field_names(),
             known_ids=reader.known_ids(grid_targets, [], vulnerabilities),
-            known_edge_ids=frozenset(),
             existing_nodes=reader.read_nodes(the_plan),  # reads the NEWER version
         )
         with pytest.raises(document.DocumentError):
@@ -261,7 +277,7 @@ class TestEndToEnd:
         the_plan = plan.plan_scan(
             targets=grid_targets,
             results=[plan.DocumentResult("doc-0", tuple(gt.target.id for gt in grid_targets), self.doc)],
-            existing_findings=[], existing_vulnerabilities=reader.read_existing_vulnerabilities(), existing_coverage={},
+            existing_findings=[], existing_vulnerabilities=reader.read_existing_vulnerabilities(),
             run_key="run-conflict", observed_at=NOW, tool_version=VERSION,
         )
         vulnerabilities = reader.read_existing_vulnerabilities()
@@ -269,7 +285,6 @@ class TestEndToEnd:
             scanner_id=str(self.scanner.id),
             field_names=reader.field_names(),
             known_ids=reader.known_ids(grid_targets, [], vulnerabilities),
-            known_edge_ids=frozenset(),
             existing_nodes=reader.read_nodes(the_plan),
         )
         built = document.build_document(the_plan, ctx)

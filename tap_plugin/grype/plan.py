@@ -106,7 +106,6 @@ class ExistingFinding:
     target_id: str
     status: str
     summary: str
-    reporting_edge_id: str | None
     version: int = 1  # the entity version this row was read at; a patch is only valid against it
 
 
@@ -153,7 +152,7 @@ class PatchFinding:
 
 @dataclass(frozen=True)
 class Report:
-    """The run reports this finding (``REPORTS_COMPLIANCE_FINDING``); the earlier edge, if any, is deleted."""
+    """The run reports this finding (``REPORTS_COMPLIANCE_FINDING``): written when the run opens it or reopens it, never again while it stays open."""
 
     finding: Ref
 
@@ -181,7 +180,6 @@ class Plan:
     mint_findings: list[MintFinding] = field(default_factory=list)
     patch_findings: list[PatchFinding] = field(default_factory=list)
     reports: list[Report] = field(default_factory=list)
-    delete_edges: list[str] = field(default_factory=list)
     unmapped: list[Unmapped] = field(default_factory=list)
 
 
@@ -330,12 +328,11 @@ def plan_scan(
     results: Sequence[DocumentResult],
     existing_findings: Sequence[ExistingFinding],
     existing_vulnerabilities: Sequence[ExistingVulnerability],
-    existing_coverage: Mapping[str, str],
     run_key: str,
     observed_at: datetime,
     tool_version: str,
 ) -> Plan:
-    """Decide every write of one scan. ``existing_coverage`` maps a target id to this scanner's current coverage edge."""
+    """Decide every write of one scan. Nothing is deleted: a collector holds no delete capability, so history stays as edges and "latest" is read, not kept."""
     grid = {gt.target.id: gt for gt in targets}
     if len(grid) != len(targets):
         raise PlanError("two targets share an id")
@@ -422,7 +419,6 @@ def plan_scan(
     mint_findings: list[MintFinding] = []
     patch_findings: list[PatchFinding] = []
     reports: list[Report] = []
-    delete_edges: list[str] = []
     for target_id in live:
         gt = grid[target_id]
         matched: set[str] = set()
@@ -453,16 +449,14 @@ def plan_scan(
                 patch["summary"] = summary
             if patch:
                 patch_findings.append(PatchFinding(current.node_id, patch, current.version))
-            reports.append(Report(Ref.existing(current.node_id)))
-            if current.reporting_edge_id:
-                delete_edges.append(current.reporting_edge_id)
+            if current.status != OPEN:  # reopened: this run is the one that reports it again
+                reports.append(Report(Ref.existing(current.node_id)))
         if outcomes[target_id][0] == SCANNED:
             for key, current in sorted(existing_by_target[target_id].items()):
                 if key not in matched and current.status == OPEN:
                     patch_findings.append(PatchFinding(current.node_id, {"status": RESOLVED}, current.version))
 
     coverage = [Coverage(t, *outcomes[t]) for t in sorted(grid)]
-    delete_edges.extend(existing_coverage[t] for t in sorted(grid) if t in existing_coverage)
 
     scanned_all = all(o == SCANNED for o, _ in outcomes.values())
     if not parsed:
@@ -480,6 +474,5 @@ def plan_scan(
         mint_findings=mint_findings,
         patch_findings=patch_findings,
         reports=reports,
-        delete_edges=delete_edges,
         unmapped=unmapped,
     )

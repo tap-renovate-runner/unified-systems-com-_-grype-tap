@@ -15,6 +15,7 @@ class GrypeConfig(TapPluginConfig):
         super().ready()
 
         # Imported inside ready(), not at module top, so the app-loading graph stays light.
+        from tap_plugin.grype.collectors.grype_collector import GrypeCollector
         from tap_plugin.grype.collectors.refresh import GrypeDatabaseRefreshCollector
 
         from tap_cares.registry import register_collector
@@ -29,5 +30,17 @@ class GrypeConfig(TapPluginConfig):
             description=(
                 "Places the pinned Grype binary and installs a newer Grype advisory database build, or reports the "
                 "installed one current. Lands no GRIFT batch; the collection job record carries the outcome."
+            ),
+        )
+
+        register_collector(
+            key="grype",
+            scope="grype",
+            cls=GrypeCollector,
+            name="Grype Collector",
+            description=(
+                "Scans every package and library on the grid with the pinned Grype against the installed advisory "
+                "database and writes the scan run, findings, vulnerabilities (with KEV and EPSS) and per-target "
+                "coverage as one batch. Reads the grid; makes no network connection."
             ),
         )

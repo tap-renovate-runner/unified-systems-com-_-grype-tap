@@ -46,8 +46,7 @@ def known_for(plan_: plan.Plan) -> frozenset[str]:
 
 def context(plan_: plan.Plan, **kw) -> document.Context:
     known = kw.pop("known_ids", known_for(plan_))
-    edges = kw.pop("known_edge_ids", frozenset(plan_.delete_edges))
-    return document.Context(scanner_id="scanner-0", field_names=FIELDS, known_ids=known, known_edge_ids=edges, new_id=counter(), now=lambda: NOW, **kw)
+    return document.Context(scanner_id="scanner-0", field_names=FIELDS, known_ids=known, new_id=counter(), now=lambda: NOW, **kw)
 
 
 def targets_ctx(grid) -> dict[str, str]:
@@ -155,14 +154,11 @@ class TestSecondRunDocument(unittest.TestCase):
     def second(self, plan_: plan.Plan, ctx: document.Context) -> dict:
         return document.build_document(plan_, ctx)["batches"][0]
 
-    def test_replaced_edges_go_into_deletes_by_id(self) -> None:
-        plan_ = run(self.grid, one_document(self.doc, self.grid), findings=self.findings, vulnerabilities=self.vulns, coverage={g.target.id: f"cov-{g.target.id}" for g in self.grid})
+    def test_the_second_run_sends_no_deletes_a_collector_holds_no_delete_capability(self) -> None:
+        plan_ = run(self.grid, one_document(self.doc, self.grid), findings=self.findings, vulnerabilities=self.vulns)
         batch = self.second(plan_, context(plan_))
-        deletes = batch["deletes"]
-        self.assertEqual((deletes["on_missing"], deletes["on_tombstoned"], deletes["nodes"]), ("error", "error", []))  # a stale snapshot is refused
-        self.assertEqual({d["entity_id"] for d in deletes["edges"]}, {f.reporting_edge_id for f in self.findings} | {f"cov-{g.target.id}" for g in self.grid})
-        self.assertEqual({d["entity_type"] for d in deletes["edges"]}, {"edge"})
-        self.assertTrue(all(d["reason"] for d in deletes["edges"]))
+        self.assertNotIn("deletes", batch)  # core ruling: collectors never retire; earlier runs' edges stay as history
+        self.assertEqual([e["edge"]["edge_type"] for e in batch["edges"]].count(document.SCANNED), len(self.grid))  # a fresh coverage edge per target
 
     def test_an_existing_vulnerability_is_sent_whole_with_the_version_it_was_read_at(self) -> None:
         theirs = plan.ExistingVulnerability("v-cve", 4, "CVE-2021-44228", ("GHSA-jfh8-c2jp-5v3q",), {"cvss_score": 10.0, "kev": False})
@@ -196,7 +192,7 @@ class TestSecondRunDocument(unittest.TestCase):
             document.build_document(plan_, context(plan_, existing_nodes={"v-cve": read}))
 
     def test_a_resolved_finding_is_sent_as_the_whole_finding_with_its_version(self) -> None:
-        gone = plan.ExistingFinding('["CVE-0000-0001","computing_core__library","x","1"]', "f-gone", self.grid[0].target.id, plan.OPEN, "x", None, 2)
+        gone = plan.ExistingFinding('["CVE-0000-0001","computing_core__library","x","1"]', "f-gone", self.grid[0].target.id, plan.OPEN, "x", 2)
         plan_ = run(self.grid, one_document(self.doc, self.grid), findings=[*self.findings, gone], vulnerabilities=self.vulns)
         read = document.ExistingNode(2, whole(FINDING_FIELDS, {"source": "grype", "source_key": gone.key, "name": "n", "summary": "x", "status": "open", "description": "kept"}), {"compliance": "finding"}, "n")
         batch = self.second(plan_, context(plan_, existing_nodes={"f-gone": read}))
@@ -213,7 +209,7 @@ class TestGuardsOnWhatIsSentWhole(unittest.TestCase):
         first = run(self.grid, one_document(self.doc, self.grid))
         self.first_plan = first
         self.findings, self.vulns = as_existing(first, self.grid)
-        self.gone = plan.ExistingFinding('["CVE-0000-0001","computing_core__library","x","1"]', "f-gone", self.grid[0].target.id, plan.OPEN, "x", None, 3)
+        self.gone = plan.ExistingFinding('["CVE-0000-0001","computing_core__library","x","1"]', "f-gone", self.grid[0].target.id, plan.OPEN, "x", 3)
         self.resolving = run(self.grid, one_document(self.doc, self.grid), findings=[*self.findings, self.gone], vulnerabilities=self.vulns)
         self.read = document.ExistingNode(3, whole(FINDING_FIELDS, {"source": "grype", "source_key": self.gone.key, "name": "n", "status": "open"}), {"compliance": "finding"}, "n")
 
@@ -232,14 +228,6 @@ class TestGuardsOnWhatIsSentWhole(unittest.TestCase):
         extra = dataclasses.replace(self.read, properties={**self.read.properties, "unexpected_field": "value"})
         with self.assertRaises(document.DocumentError):
             document.build_document(self.resolving, context(self.resolving, existing_nodes={"f-gone": extra}))
-
-    def test_a_plan_that_deletes_an_edge_the_run_never_read_is_refused(self) -> None:
-        plan_ = run(self.grid, one_document(self.doc, self.grid), findings=self.findings, vulnerabilities=self.vulns, coverage={g.target.id: f"cov-{g.target.id}" for g in self.grid})
-        read_edges = frozenset(plan_.delete_edges)
-        document.build_document(plan_, context(plan_, known_edge_ids=read_edges))  # every deletion was read: sent
-        poisoned = dataclasses.replace(plan_, delete_edges=[*plan_.delete_edges, "an-unrelated-edge"])
-        with self.assertRaises(document.DocumentError):
-            document.build_document(poisoned, context(poisoned, known_edge_ids=read_edges))
 
     def test_an_edge_to_an_id_this_run_never_read_is_refused(self) -> None:
         stranger = "00000000-0000-7000-8000-00000000ffff"
@@ -264,7 +252,7 @@ class TestGuardsOnWhatIsSentWhole(unittest.TestCase):
             document.build_document(patched, context(patched, existing_nodes={"v-cve": node, "f-gone": self.read}))
 
     def test_a_context_that_does_not_say_what_the_fields_of_a_type_are_cannot_send_a_whole_node(self) -> None:
-        ctx = document.Context(scanner_id="s", field_names={}, known_ids=known_for(self.resolving), known_edge_ids=frozenset(), new_id=counter(), now=lambda: NOW, existing_nodes={"f-gone": self.read})
+        ctx = document.Context(scanner_id="s", field_names={}, known_ids=known_for(self.resolving), new_id=counter(), now=lambda: NOW, existing_nodes={"f-gone": self.read})
         with self.assertRaises(document.DocumentError):
             document.build_document(self.resolving, ctx)
 
@@ -292,10 +280,10 @@ class TestAgainstTheGriftSchema(unittest.TestCase):
         grid = grid_targets(doc)
         first = run(grid, one_document(doc, grid))
         findings, vulns = as_existing(first, grid)
-        second = run(grid, one_document(doc, grid), findings=findings, vulnerabilities=vulns, coverage={g.target.id: f"00000000-0000-7000-8000-{n:012d}" for n, g in enumerate(grid, 100)})
+        second = run(grid, one_document(doc, grid), findings=findings, vulnerabilities=vulns)
         # A run that patches existing nodes whole: a vulnerability another source wrote, and a finding that stopped matching.
         theirs = plan.ExistingVulnerability("00000000-0000-7000-8000-0000000000b1", 4, "CVE-2021-44228", ("GHSA-jfh8-c2jp-5v3q",), {"kev": False})
-        gone = plan.ExistingFinding('["CVE-0000-0001","computing_core__library","x","1"]', "00000000-0000-7000-8000-0000000000b2", grid[0].target.id, plan.OPEN, "x", None, 2)
+        gone = plan.ExistingFinding('["CVE-0000-0001","computing_core__library","x","1"]', "00000000-0000-7000-8000-0000000000b2", grid[0].target.id, plan.OPEN, "x", 2)
         patching = run(grid, one_document(doc, grid), findings=[*findings, gone], vulnerabilities=[theirs])
         nodes = {
             theirs.node_id: document.ExistingNode(4, whole(VULN_FIELDS, {"vuln_id": "CVE-2021-44228", "aliases": ["GHSA-jfh8-c2jp-5v3q"], "cvss_score": 10.0, "kev": False}), {"compliance": "vulnerability"}, "CVE-2021-44228"),
@@ -310,7 +298,7 @@ class TestAgainstTheGriftSchema(unittest.TestCase):
         )
         for label, plan_, existing in cases:
             with self.subTest(label):
-                out = document.build_document(plan_, document.Context(scanner_id=scanner, field_names=FIELDS, known_ids=known_for(plan_), known_edge_ids=frozenset(plan_.delete_edges), existing_nodes=existing, new_id=counter(), now=lambda: NOW))
+                out = document.build_document(plan_, document.Context(scanner_id=scanner, field_names=FIELDS, known_ids=known_for(plan_), existing_nodes=existing, new_id=counter(), now=lambda: NOW))
                 jsonschema.validate(out, schema)
 
 
