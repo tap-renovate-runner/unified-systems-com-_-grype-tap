@@ -1,5 +1,5 @@
 manifest_version = "0"
-plugin_version = "0.1.0" # x-release-please-version
+plugin_version = "0.1.1" # x-release-please-version
 requires_tap = ">=0.3.0"
 slug = "grype"
 name = "TAP Grype"

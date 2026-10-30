@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.1.1](https://github.com/unified-systems-com/grype-tap/compare/v0.1.0...v0.1.1) (2026-10-30)
+
+
+### Features
+
+* the database refresh collector, its daily schedule, and where the plugin's home is ([87b5487](https://github.com/unified-systems-com/grype-tap/commit/87b5487bb4f625cea21f05ba2d710c7306cc4dcf))
+* the database refresh collector, its daily schedule, and where the plugin's home is [via grype-tap] ([09dd800](https://github.com/unified-systems-com/grype-tap/commit/09dd8008f068b18b249892b3f7f7b2c665c6c93b))
+* the scan collector, and no deletes anywhere in a run ([737b698](https://github.com/unified-systems-com/grype-tap/commit/737b69828b97c2cea1ab68d2c0ed97e5b2a71e61))
+* the scan collector, and no deletes anywhere in a run [via grype-tap] ([cad5016](https://github.com/unified-systems-com/grype-tap/commit/cad50165f0ae690e59dde48d81eaf6c14203d408))
+
+
+### Bug Fixes
+
+* a mirror removes the database egress from the readiness report, not the binary's ([59f0b97](https://github.com/unified-systems-com/grype-tap/commit/59f0b977420bf18ae9aab7e982b7677da1a06a86))
+* scan from one snapshot of the operating systems, and let core decide when a job is dead ([ca7a59b](https://github.com/unified-systems-com/grype-tap/commit/ca7a59b17fc2caa7c598542b4b586e04a0a0ea7d))
+* the readiness probe never touches an existing file, and the egress hosts are the traced ones ([3c38661](https://github.com/unified-systems-com/grype-tap/commit/3c38661bf4ad203222f8f0b95bcaa98bca8b5b71))
+* the scan collector reads again when the grid moves under it, and a stuck job cannot silence it ([102fa29](https://github.com/unified-systems-com/grype-tap/commit/102fa298eb4a796c6ab206eb8110e05c3c686fb5))
+
+
+### Documentation
+
+* **spec:** a run deletes nothing, and the skip rule is any other running job ([b8f5fc0](https://github.com/unified-systems-com/grype-tap/commit/b8f5fc02a1bad86ef722fce7f6f8c658d43434db))
+* **spec:** the stale-job bound, why a skip is a success, and the re-read of targets after the scan ([d7773a5](https://github.com/unified-systems-com/grype-tap/commit/d7773a5b2bd6836a68a8baf5482ebb4f54ff0258))
+
 ## 0.1.0 (2026-10-25)
 
 
